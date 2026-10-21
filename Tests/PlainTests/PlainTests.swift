@@ -170,6 +170,14 @@ final class PlainTests: XCTestCase {
             XCTAssertFalse(FileManager.default.fileExists(atPath: old.path))
             XCTAssertEqual(try String(contentsOf: new, encoding: .utf8), autosave ? "alpha edited" : "alpha")
             XCTAssertEqual(document.isEdited, !autosave)
+            // Turns red if fileMoved stops recording the document under its new path and discarding the old path's entry.
+            let paths = await context.fileHistory.all().map(\.path)
+            XCTAssertFalse(paths.contains(old.path))
+            XCTAssertTrue(paths.contains(try XCTUnwrap(document.url).path))
+            if !autosave {
+                let unsaved = await context.fileHistory.unsavedText(for: try XCTUnwrap(document.url).path)
+                XCTAssertEqual(unsaved, "alpha edited")
+            }
         }
     }
 

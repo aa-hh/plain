@@ -1357,6 +1357,9 @@ public final class WindowModel {
         guard let position = tabs.items.firstIndex(where: { $0.document.url?.standardizedFileURL == old.standardizedFileURL }) else { return }
         let document = tabs.items[position].document
         document.moved(to: new)
+        recordHistory(document)
+        let history = context.fileHistory
+        Task { try? await history.discard(path: old.path) }
         tabs.items[position].mark = mark(for: document)
         saveMemory()
     }
