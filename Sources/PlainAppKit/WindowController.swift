@@ -126,9 +126,4 @@ public final class WindowController: NSObject, NSWindowDelegate {
 
     public func windowDidBecomeKey(_ notification: Notification) { model.windowBecameKey() }
     public func windowDidResignKey(_ notification: Notification) { model.windowResignedKey() }
-
-    /// Quit: autosave, history and state (spec 746).
-    func willClose() {
-        model.windowWillHide()
-    }
 }

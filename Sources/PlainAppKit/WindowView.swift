@@ -157,7 +157,8 @@ public struct WindowView: View {
             if let tree = model.tree {
                 FilesSidebar(
                     root: tree, currentFile: model.currentDocument?.url, gitMarks: model.gitMarks,
-                    expanded: $sidebar.expandedFolders, compact: compact, actions: model.sidebarActions)
+                    expanded: $sidebar.expandedFolders, compact: compact, actions: model.sidebarActions,
+                    focusRequested: $sidebar.filesFocusRequested)
                 .onChange(of: model.sidebar.expandedFolders) {
                     let sidebar = model.sidebar, store = model.context.store
                     Task { try? await sidebar.saveExpansion(to: store) }
@@ -168,7 +169,7 @@ public struct WindowView: View {
         case .outline:
             OutlineSidebar(
                 headings: model.snapshot?.headings ?? [], caretOffset: model.editor.selectedRanges.first?.location ?? 0,
-                changedHeadings: [], onJump: { heading, focus in model.jump(to: heading, focus: focus) })
+                changedHeadings: model.changedHeadings, onJump: { heading, focus in model.jump(to: heading, focus: focus) })
         case .none:
             EmptyView()
         }
@@ -189,7 +190,8 @@ public struct WindowView: View {
                     }
                 },
                 revertToBackup: { model.revertToBackup($0) },
-                toggleZoom: { model.window?.zoom(nil) }))
+                toggleZoom: { model.window?.zoom(nil) }),
+            showsEditedMark: { model.showsEditedMark($0) })
         .background(WindowDragArea())
     }
 

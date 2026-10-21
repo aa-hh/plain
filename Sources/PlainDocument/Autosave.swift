@@ -7,6 +7,8 @@ public final class AutosaveController {
     public var enabled: Bool
     public let delay: Duration
     public private(set) var lastError: (any Error)?
+    /// Called after each successful save, so the shell can record the file's history as saved.
+    @ObservationIgnored public var onSaved: () -> Void = {}
 
     private let document: Document
     @ObservationIgnored private var timer: Task<Void, Never>?
@@ -51,13 +53,13 @@ public final class AutosaveController {
     public func flush() async {
         timer?.cancel()
         guard isDue else { return }
-        do { try await document.save(); lastError = nil } catch { lastError = error }
+        do { try await document.save(); lastError = nil; onSaved() } catch { lastError = error }
     }
 
     /// Saves now and returns when done. Called before a tab switch or close.
     public func flushSync() {
         timer?.cancel()
         guard isDue else { return }
-        do { try document.saveSync(); lastError = nil } catch { lastError = error }
+        do { try document.saveSync(); lastError = nil; onSaved() } catch { lastError = error }
     }
 }

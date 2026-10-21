@@ -287,15 +287,24 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
 
     public func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
 
-    /// Remembers the focused window, then lets every window save (spec 746).
+    /// Remembers the focused window, then lets every window save and quits once the saves are on disk (spec 746).
     public func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         let focused = controllers.first { $0.value.window === NSApp.keyWindow }?.key
         if let data = try? JSONEncoder().encode(AppState(focusedWindowID: focused)) {
             try? FileManager.default.createDirectory(at: context.stateFolder, withIntermediateDirectories: true)
             try? data.write(to: context.stateFolder.appendingPathComponent("\(Self.appStateName).json"), options: .atomic)
         }
-        for controller in controllers.values { controller.willClose() }
-        return .terminateNow
+        let models = models
+        Task {
+            await Self.saveBeforeQuit(models)
+            sender.reply(toApplicationShouldTerminate: true)
+        }
+        return .terminateLater
+    }
+
+    /// Everything the windows must write before the app exits.
+    static func saveBeforeQuit(_ models: [WindowModel]) async {
+        for model in models { await model.saveForQuit() }
     }
 
     // MARK: Opening from the system

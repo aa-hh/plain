@@ -87,4 +87,15 @@ final class AutocompleteTests: XCTestCase {
         await editor.set("```swift|")
         XCTAssertNil(editor.suggestions(at: 8))
     }
+
+    // Spec 186. Turns red if the editor goes back to loading recent emoji in init, before EditorView injects the
+    // window's closures, so it always reads the empty default.
+    func testRecentEmojiLoadThroughInjectedActions() async {
+        let editor = await makeEditor()
+        var actions = EditorActions()
+        actions.recentEmoji = { ["🎉"] }
+        editor.actions = actions
+        let loaded = await waitUntil { editor.recentEmoji == ["🎉"] }
+        XCTAssertTrue(loaded)
+    }
 }

@@ -147,9 +147,12 @@ public struct FilesSidebar: View {
 
     private enum Field: Hashable { case filter, list, edit }
 
+    /// Set by the shell to move keyboard focus into the list; cleared once taken.
+    @Binding var focusRequested: Bool
+
     public init(
         root: FolderNode, currentFile: URL?, gitMarks: [URL: GitMark], expanded: Binding<Set<URL>>,
-        compact: Bool, actions: FilesSidebarActions
+        compact: Bool, actions: FilesSidebarActions, focusRequested: Binding<Bool> = .constant(false)
     ) {
         self.root = root
         self.currentFile = currentFile
@@ -157,6 +160,7 @@ public struct FilesSidebar: View {
         self._expanded = expanded
         self.compact = compact
         self.actions = actions
+        self._focusRequested = focusRequested
     }
 
     /// Rows in display order: the expanded tree, or with a query every matching item at depth 0.
@@ -210,6 +214,11 @@ public struct FilesSidebar: View {
             .focused($focus, equals: .list)
             .onKeyPress(phases: .down) { handleListKey($0, rows: rows) }
             .contextMenu { emptyAreaMenu }
+        }
+        .task(id: focusRequested) {
+            guard focusRequested else { return }
+            focus = .list
+            focusRequested = false
         }
         .frame(width: Tokens.sidebarWidth)
         .background(Color.material)

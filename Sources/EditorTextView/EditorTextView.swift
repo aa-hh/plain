@@ -98,7 +98,16 @@ public final class EditorTextView: NSTextView, @preconcurrency NSTextLayoutManag
     public let document: Document
     public let markdown: MarkdownDocument
     public private(set) var configuration: EditorConfiguration
-    public var actions = EditorActions()
+    /// Injected by `EditorView` after init; the first injection loads the recent emoji through it.
+    public var actions = EditorActions() {
+        didSet {
+            guard !recentEmojiRequested else { return }
+            recentEmojiRequested = true
+            let load = actions.recentEmoji
+            Task { [weak self] in self?.recentEmoji = await load() }
+        }
+    }
+    private var recentEmojiRequested = false
     let styler: MarkdownStyler
 
     /// The latest snapshot whose version equals the text's version; nil while a parse is pending.
@@ -106,6 +115,8 @@ public final class EditorTextView: NSTextView, @preconcurrency NSTextLayoutManag
     /// The version of the last edit sent to `markdown`.
     public private(set) var appliedVersion = TextVersion(rawValue: 0)
     private var handledVersion = TextVersion(rawValue: -1)
+    /// False until a snapshot of this editor's text has been applied to the whole text.
+    private var styledOnce = false
     /// Edits sent but not yet covered by a delivered snapshot: version, location, old length, new length.
     private var editLog: [(version: Int, location: Int, oldLength: Int, newLength: Int)] = []
     /// Text that needs restyling once a current snapshot arrives, in current text offsets.
@@ -178,6 +189,8 @@ public final class EditorTextView: NSTextView, @preconcurrency NSTextLayoutManag
         self.markdown = markdown
         self.configuration = configuration
         styler = MarkdownStyler(storage: document.textStorage, configuration: configuration)
+        // A parser kept for the tab's life has seen earlier edits; this editor's edits continue from its version.
+        appliedVersion = markdown.version
 
         let contentStorage = NSTextContentStorage()
         let layoutManager = NSTextLayoutManager()
@@ -222,8 +235,6 @@ public final class EditorTextView: NSTextView, @preconcurrency NSTextLayoutManag
         styler.didRestyle = { [weak self] range in self?.applyOverlays(in: range) }
         observeEdits()
         consumeSnapshots()
-        let load = actions.recentEmoji
-        Task { [weak self] in self?.recentEmoji = await load() }
     }
 
     @available(*, unavailable)
@@ -350,8 +361,9 @@ public final class EditorTextView: NSTextView, @preconcurrency NSTextLayoutManag
     private func consumeSnapshots() {
         let stream = markdown.snapshots
         let markdown = markdown
+        let version = appliedVersion
         snapshotTask = Task { [weak self] in
-            let first = await markdown.currentSnapshot()
+            let first = await markdown.snapshot(atLeast: version)
             self?.received(first, initial: true)
             for await snapshot in stream {
                 guard let self else { return }
@@ -362,17 +374,19 @@ public final class EditorTextView: NSTextView, @preconcurrency NSTextLayoutManag
 
     /// Waits until a snapshot for the current text has been applied.
     public func settle() async {
-        let snapshot = await markdown.snapshot(atLeast: appliedVersion)
-        received(snapshot, initial: false)
+        // A second pass covers the whole-text edit sent when the parser held other text.
+        for _ in 0..<2 where snapshot?.version != appliedVersion {
+            received(await markdown.snapshot(atLeast: appliedVersion), initial: false)
+        }
     }
 
     private func received(_ snapshot: Snapshot, initial isFirst: Bool) {
         guard snapshot.version > handledVersion else { return }
-        let initial = isFirst || handledVersion.rawValue < 0
+        let first = isFirst || handledVersion.rawValue < 0
+        let initial = !styledOnce
         handledVersion = snapshot.version
-        if initial && snapshot.version == TextVersion(rawValue: 0) && appliedVersion == snapshot.version
-            && (snapshot.text as NSString).length != document.textStorage.length {
-            // The parser was made from different text: send the whole text once.
+        if first && snapshot.version == appliedVersion && !(snapshot.text as NSString).isEqual(to: document.textStorage.string) {
+            // The parser holds other text (made from it, or edited while no editor was attached): send the whole text once.
             let length = (snapshot.text as NSString).length
             appliedVersion = markdown.apply(TextEdit(range: NSRange(location: 0, length: length), replacement: document.textStorage.string))
             return
@@ -385,6 +399,7 @@ public final class EditorTextView: NSTextView, @preconcurrency NSTextLayoutManag
         guard snapshot.version == appliedVersion else { return }
         self.snapshot = snapshot
         if initial {
+            styledOnce = true
             restyleAll(snapshot)
         } else if let range = dirtyRange {
             styler.restyle(snapshot: snapshot, range: range)
@@ -565,6 +580,16 @@ public final class EditorTextView: NSTextView, @preconcurrency NSTextLayoutManag
 
     func stateChanged() {
         for observer in stateObservers { observer() }
+    }
+
+    /// Leaving its scroll view ends this editor: a later editor for the tab takes over the tab's parser, so this one
+    /// stops sending it edits and taking its snapshots.
+    public override func viewWillMove(toSuperview newSuperview: NSView?) {
+        super.viewWillMove(toSuperview: newSuperview)
+        guard newSuperview == nil, superview != nil else { return }
+        if let editObserver { NotificationCenter.default.removeObserver(editObserver) }
+        editObserver = nil
+        snapshotTask?.cancel()
     }
 
     public override func viewDidMoveToSuperview() {

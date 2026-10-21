@@ -52,6 +52,26 @@ final class SelectionTests: XCTestCase {
         XCTAssertEqual(editor.text, "a\nb\nc")
     }
 
+    // Spec 507. Turns red if EditorController.replace stops going through the editor's edit path, so the preview's
+    // checkbox edit cannot be redone after an undo, or stops working while full preview makes the editor read-only.
+    func testControllerReplaceUndoesAndRedoes() async {
+        let editor = await makeEditor("- [ ] task\n")
+        let controller = EditorController()
+        controller.editor = editor
+        controller.isReadOnly = true
+        XCTAssertTrue(controller.replace(range: NSRange(location: 3, length: 1), with: "x"))
+        await editor.settle()
+        XCTAssertEqual(editor.text, "- [x] task\n")
+        XCTAssertFalse(editor.isEditable)
+        editor.undoManager?.undo()
+        await editor.settle()
+        XCTAssertEqual(editor.text, "- [ ] task\n")
+        editor.undoManager?.redo()
+        await editor.settle()
+        XCTAssertEqual(editor.text, "- [x] task\n")
+        XCTAssertEqual(editor.snapshot?.text, editor.text)
+    }
+
     // Spec 267. Turns red if a column selection stops making one selection per line between the two points.
     func testColumnSelection() async {
         let editor = await makeEditor("aaaa\naaaa\naaaa\n")

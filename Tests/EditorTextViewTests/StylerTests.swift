@@ -1,6 +1,7 @@
 import AppKit
 import MarkdownDocument
 import PlainCore
+import PlainDocument
 import XCTest
 @testable import EditorTextView
 
@@ -114,5 +115,47 @@ final class StylerTests: XCTestCase {
         XCTAssertEqual(editor.textContainer?.size.width, editor.columnWidth)
         XCTAssertEqual(editor.textContainerOrigin.x, ((editor.bounds.width - editor.columnWidth) / 2).rounded(.down))
         XCTAssertEqual(editor.textContainerOrigin.y, 48)
+    }
+
+    // Turns red if a new editor on a parser that has already taken edits starts at version 0 again and drops its
+    // first snapshot, leaving the reattached text unstyled.
+    func testReattachedEditorStylesFromUsedParser() async {
+        let document = PlainDocument.Document(text: "text\n")
+        let markdown = MarkdownDocument(text: "text\n")
+        let first = EditorTextView(document: document, markdown: markdown)
+        host(first)
+        await first.settle()
+        first.replace(all: "## Title\n\ntext\n")
+        await first.settle()
+
+        let second = EditorTextView(document: document, markdown: markdown)
+        host(second)
+        await second.settle()
+        XCTAssertEqual(second.snapshot?.text, document.text)
+        XCTAssertTrue(second.isBold(at: 4))
+        XCTAssertEqual(second.attribute(.plainHeadingLabel, at: 0) as? String, "h2")
+    }
+
+    // Turns red if an editor attaching to a parser stops comparing the parser's text with the tab's text, so an
+    // edit made while no editor was attached (a background tab) never reaches the parser.
+    func testBackgroundEditReachesParserWhenEditorAttaches() async {
+        let document = PlainDocument.Document(text: "text\n")
+        let markdown = MarkdownDocument(text: "text\n")
+        var first: EditorTextView? = EditorTextView(document: document, markdown: markdown)
+        await first?.settle()
+        weak var released = first
+        first = nil
+        let gone = await waitUntil { released == nil }
+        XCTAssertTrue(gone)
+        document.textStorage.replaceCharacters(in: NSRange(location: 0, length: 0), with: "# Head\n\n")
+
+        let second = EditorTextView(document: document, markdown: markdown)
+        host(second)
+        await second.settle()
+        let parsed = await markdown.currentSnapshot()
+        XCTAssertEqual(parsed.text, "# Head\n\ntext\n")
+        XCTAssertEqual(second.snapshot?.text, document.text)
+        XCTAssertTrue(second.isBold(at: 3))
+        XCTAssertEqual(parsed.headings.map(\.text), ["Head"])
     }
 }

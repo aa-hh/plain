@@ -78,4 +78,35 @@ final class EditorPerformanceTests: XCTestCase {
         XCTAssertLessThanOrEqual(loadMs, 300)
         #endif
     }
+
+    // Turns red if switching back to a 1 MB tab takes over 50 ms to its styled screen, for example because the
+    // tab's parser is rebuilt and the whole file reparsed, or the reattached editor restyles the whole file at once.
+    func testTabSwitchBack() async throws {
+        #if DEBUG
+        throw XCTSkip("Performance runs in release only")
+        #else
+        let text = Self.fixture
+        let markdown = MarkdownDocument(text: text)
+        let document = Document(text: text)
+        let first = EditorTextView(document: document, markdown: markdown)
+        host(first)
+        await first.settle()
+        first.insertText("x", replacementRange: NSRange(location: NSNotFound, length: 0))
+        await first.settle()
+
+        let other = await makeEditor("# Other tab\n")
+        _ = other
+
+        let start = ContinuousClock.now
+        let back = EditorTextView(document: document, markdown: markdown)
+        host(back)
+        await back.settle()
+        back.textLayoutManager?.textViewportLayoutController.layoutViewport()
+        let elapsed = ContinuousClock.now - start
+        let ms = Double(elapsed.components.attoseconds) / 1e15 + Double(elapsed.components.seconds) * 1000
+        print("PERF tab-switch-1mb-ms \(String(format: "%.1f", ms))")
+        XCTAssertEqual(back.snapshot?.text.utf16.count, document.textStorage.length)
+        XCTAssertLessThanOrEqual(ms, 50)
+        #endif
+    }
 }

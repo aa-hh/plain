@@ -29,8 +29,29 @@ public final class EditorController {
     /// Called after a typed line break; the shell asks `Backups` whether a backup is due.
     @ObservationIgnored public var onLineBreakInserted: (() -> Void)?
     @ObservationIgnored weak var editor: EditorTextView?
+    /// One list for every editor this controller installs, so To Last Edit crosses files.
+    @ObservationIgnored public let editLocations = EditLocations()
+    /// A selection for a document whose editor is not installed yet (a tab that just opened).
+    @ObservationIgnored private var pending: (document: PlainDocument.Document, range: NSRange, position: EditorScrollPosition?)?
 
     public init() {}
+
+    /// Selects `range` in `document` and scrolls to it: now when its editor shows, else when that editor is installed.
+    /// With no position the selection is only scrolled into view.
+    public func show(range: NSRange, in document: PlainDocument.Document, position: EditorScrollPosition?) {
+        pending = (document, range, position)
+        if let editor { applyPending(to: editor) }
+    }
+
+    func applyPending(to editor: EditorTextView) {
+        guard let pending, pending.document === editor.document else { return }
+        self.pending = nil
+        let length = editor.nsText.length
+        let location = min(pending.range.location, length)
+        let range = NSRange(location: location, length: min(pending.range.length, length - location))
+        select(range: range)
+        if let position = pending.position { scrollTo(offset: range.location, position: position) }
+    }
 
     public func scrollTo(offset: Int, position: EditorScrollPosition) {
         guard let editor, let scrollView = editor.enclosingScrollView else { return }
@@ -50,6 +71,18 @@ public final class EditorController {
         guard let editor else { return }
         editor.setAllSelections([range])
         editor.scrollRangeToVisible(range)
+    }
+
+    /// Replaces text through the editor's own edit path: one undo step that redo can repeat, seen by the parser.
+    @discardableResult
+    public func replace(range: NSRange, with text: String) -> Bool {
+        guard let editor, NSMaxRange(range) <= editor.nsText.length else { return false }
+        // Full preview makes the editor read-only, and the preview's checkboxes still edit (spec 366, 507).
+        let editable = editor.isEditable
+        editor.isEditable = true
+        defer { editor.isEditable = editable }
+        editor.perform([(range, text)], select: nil)
+        return true
     }
 
     public func focus() {
@@ -139,6 +172,7 @@ public struct EditorView: NSViewRepresentable {
     /// Makes the text view for the current document and restores its scroll position and selection.
     private func install(in container: EditorContainerView) {
         let editor = EditorTextView(document: document, markdown: markdown, configuration: configuration)
+        editor.editLocations = controller.editLocations
         editor.frame = NSRect(origin: .zero, size: container.scrollView.contentSize)
         container.scrollView.documentView = editor
         configure(editor)
@@ -159,6 +193,7 @@ public struct EditorView: NSViewRepresentable {
             editor.document.scrollOffset = editor.enclosingScrollView?.contentView.bounds.minY ?? 0
         }
         editor.lineBreakObserver = { controller.onLineBreakInserted?() }
+        controller.applyPending(to: editor)
         controller.update(from: editor)
     }
 

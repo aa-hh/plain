@@ -1,5 +1,6 @@
 import AppKit
 import PlainCore
+import PlainDocument
 import SwiftUI
 
 /// What the tab bar asks the shell to do.
@@ -38,11 +39,15 @@ public struct TabBar: View {
     let tabs: [TabItem]
     let currentID: TabItem.ID?
     let actions: TabBarActions
+    /// Whether a tab shows the edited dot; the shell hides it while autosave covers the file.
+    let showsEditedMark: (TabItem) -> Bool
 
-    public init(tabs: [TabItem], currentID: TabItem.ID?, actions: TabBarActions) {
+    public init(tabs: [TabItem], currentID: TabItem.ID?, actions: TabBarActions,
+                showsEditedMark: @escaping (TabItem) -> Bool = { $0.document.isEdited }) {
         self.tabs = tabs
         self.currentID = currentID
         self.actions = actions
+        self.showsEditedMark = showsEditedMark
     }
 
     /// A file name of the form `2026-03-12` shown as a medium date; other names unchanged.
@@ -76,14 +81,14 @@ public struct TabBar: View {
         let isCurrent = tab.id == currentID
         let document = tab.document
         let colour = isCurrent ? Color.secondaryText : Color.tertiaryText
-        let ext = document.fileExtension.isEmpty || document.isBackupTab ? "" : "." + document.fileExtension
+        let ext = document.fileExtension.isEmpty || document.isBackupTab || tab.title != nil ? "" : "." + document.fileExtension
         return HStack(spacing: 5) {
             if tab.mark == .outsideFolder { Text("⇾") }
             HStack(spacing: 0) {
-                Text(Self.friendlyName(document.displayName))
+                Text(tab.title ?? Self.friendlyName(document.displayName))
                 Text(ext).foregroundStyle(Color.tertiaryText)
             }
-            if document.isEdited { Text("•") }
+            if showsEditedMark(tab) { Text("•") }
         }
         .font(uiFont)
         .foregroundStyle(colour)

@@ -147,4 +147,25 @@ final class DocumentTests: TempFolderTestCase {
         try await document.save()
         await fulfillment(of: [quiet], timeout: 1)
     }
+
+    // Turns red if finishWrite stops ignoring an older write that finishes after a newer one, which leaves an old
+    // modification date behind and makes the next disk check reload the file.
+    func testOverlappingSavesKeepNewestModificationDate() async throws {
+        let url = try write("old")
+        let document = try await Document.open(url: url)
+        type("a", into: document)
+        let pending = Task { try await document.save() }
+        await Task.yield()
+        // Block the main actor until the async write is on disk, so its result is taken in only after saveSync.
+        let deadline = Date().addingTimeInterval(2)
+        while (try? String(contentsOf: url, encoding: .utf8)) != "aold", Date() < deadline { usleep(1000) }
+        XCTAssertEqual(try String(contentsOf: url, encoding: .utf8), "aold")
+        type("b", into: document)
+        try document.saveSync()
+        let newest = try XCTUnwrap(FileManager.default.attributesOfItem(atPath: url.path)[.modificationDate] as? Date)
+        try await pending.value
+        XCTAssertEqual(try String(contentsOf: url, encoding: .utf8), "baold")
+        XCTAssertEqual(document.lastDiskModificationDate, newest)
+        XCTAssertFalse(document.isEdited)
+    }
 }

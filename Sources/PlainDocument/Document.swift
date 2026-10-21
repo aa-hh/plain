@@ -97,6 +97,8 @@ public final class Document {
     private var savedEditCount = 0
     @ObservationIgnored private let gate = WriteGate()
     @ObservationIgnored private var generation = 0
+    /// The newest write whose result has been taken in; an older write finishing later changes nothing.
+    @ObservationIgnored private var finishedGeneration = 0
     @ObservationIgnored private var presenter: FilePresenter?
     @ObservationIgnored private var editObserver: NSObjectProtocol?
 
@@ -151,14 +153,14 @@ public final class Document {
         let (text, count, gen) = beginWrite()
         let gate = gate
         let date = try await Task.detached { try gate.write(text, to: url, generation: gen) }.value
-        finishWrite(count: count, date: date)
+        finishWrite(count: count, date: date, generation: gen)
     }
 
     /// Blocks the caller. Used before a tab switch or close, where an async save could be lost.
     public func saveSync() throws {
         guard let url else { throw DocumentError.untitled }
         let (text, count, gen) = beginWrite()
-        finishWrite(count: count, date: try gate.write(text, to: url, generation: gen))
+        finishWrite(count: count, date: try gate.write(text, to: url, generation: gen), generation: gen)
     }
 
     public func saveAs(url newURL: URL) async throws {
@@ -167,6 +169,12 @@ public final class Document {
         do { try await save() } catch { url = old; throw error }
         if let untitledURL { try? FileManager.default.removeItem(at: untitledURL) }
         untitledURL = nil
+        startWatching()
+    }
+
+    /// The file was renamed or moved: the text, edited state and undo stay; watching follows the new path.
+    public func moved(to newURL: URL) {
+        url = newURL
         startWatching()
     }
 
@@ -209,7 +217,9 @@ public final class Document {
         return (textStorage.string, editCount, generation)
     }
 
-    private func finishWrite(count: Int, date: Date?) {
+    private func finishWrite(count: Int, date: Date?, generation: Int) {
+        guard generation > finishedGeneration else { return }
+        finishedGeneration = generation
         savedEditCount = count
         lastDiskModificationDate = date
     }

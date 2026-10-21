@@ -46,6 +46,8 @@ public final class SidebarState {
     /// The sidebar `window:toggle-sidebar` re-shows.
     public var lastVisible: SidebarMode
     public var expandedFolders: Set<URL> = []
+    /// Set by Show Files; the Files sidebar takes keyboard focus and clears it (spec 897).
+    public var filesFocusRequested = false
 
     public static let expansionStateName = "sidebar-expansion"
 
@@ -86,11 +88,14 @@ public struct TabItem: Identifiable {
     public let id: UUID
     public let document: Document
     public var mark: TabMark
+    /// Shown instead of the file name (a backup tab's `<file> | <backup>`, spec 886).
+    public var title: String?
 
-    public init(id: UUID = UUID(), document: Document, mark: TabMark = .none) {
+    public init(id: UUID = UUID(), document: Document, mark: TabMark = .none, title: String? = nil) {
         self.id = id
         self.document = document
         self.mark = mark
+        self.title = title
     }
 }
 

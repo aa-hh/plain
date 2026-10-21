@@ -50,6 +50,11 @@ public actor MarkdownDocument {
         return TextVersion(rawValue: version)
     }
 
+    /// The version of the last edit queued, published or not.
+    public nonisolated var version: TextVersion {
+        TextVersion(rawValue: inbox.withLock { $0.version })
+    }
+
     /// A new stream on each access; every stream receives every snapshot published after it was made.
     public nonisolated var snapshots: AsyncStream<Snapshot> {
         let (stream, continuation) = AsyncStream<Snapshot>.makeStream()

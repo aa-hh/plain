@@ -221,12 +221,16 @@ public final class WindowModel {
     public let preview: PreviewController
     @ObservationIgnored let scrollSync: ScrollSync
     public let spellcheck: SpellcheckController
-    /// The parser for the current tab, made fresh each time a tab becomes current.
+    /// The parser for the current tab; each tab gets its own on first activation and keeps it until it closes.
     public private(set) var markdown: MarkdownDocument?
-    public private(set) var snapshot: Snapshot?
+    @ObservationIgnored private(set) var parsers: [ObjectIdentifier: MarkdownDocument] = [:]
+    public private(set) var snapshot: Snapshot? {
+        didSet { if sidebar.mode == .outline { refreshChangedHeadings() } }
+    }
     @ObservationIgnored private var snapshotTask: Task<Void, Never>?
+    public private(set) var changedHeadings: Set<BlockID> = []
+    @ObservationIgnored private var changedHeadingsTask: Task<Void, Never>?
     @ObservationIgnored private var autosaves: [ObjectIdentifier: AutosaveController] = [:]
-    @ObservationIgnored let editLocations = EditLocations()
     @ObservationIgnored private let richTextMath = KaTeXJSRenderer()
     @ObservationIgnored let modifierFlags = PassthroughSubject<NSEvent.ModifierFlags, Never>()
     @ObservationIgnored private var tasks: [Task<Void, Never>] = []
@@ -264,15 +268,6 @@ public final class WindowModel {
                 guard let self, let document = object as? Document,
                       self.tabs.current?.document === document, self.window?.isKeyWindow == true else { return }
                 Task { await self.checkDisk(document) }
-            }
-        })
-        // One edit-location list per window, so To Last Edit crosses files (the editor makes its own per text view).
-        observers.append(NotificationCenter.default.addObserver(forName: NSTextView.didChangeSelectionNotification, object: nil, queue: .main) { [weak self] note in
-            nonisolated(unsafe) let object = note.object
-            MainActor.assumeIsolated {
-                guard let self, let editor = object as? EditorTextView, editor.window === self.window,
-                      editor.editLocations !== self.editLocations else { return }
-                editor.editLocations = self.editLocations
             }
         })
         historyTimer = Timer.scheduledTimer(withTimeInterval: 30, repeats: true) { [weak self] _ in
@@ -399,7 +394,10 @@ public final class WindowModel {
             for await _ in index.changes { await self?.refreshTree() }
         })
         tasks.append(Task { [weak self] in
-            for await marks in git.updates { self?.gitMarks = marks }
+            for await marks in git.updates {
+                self?.gitMarks = marks
+                self?.refreshChangedHeadings()
+            }
         })
         await index.start()
         await refreshTree()
@@ -480,7 +478,7 @@ public final class WindowModel {
         case .tab(let url, let anchor):
             Task {
                 await openInTab(url)
-                if let anchor { scrollToAnchor(anchor) }
+                if let anchor { await scrollToAnchor(anchor, in: url) }
             }
         case .quickLook(let url): showQuickLook(url)
         case .system(let url): NSWorkspace.shared.open(url)
@@ -489,10 +487,17 @@ public final class WindowModel {
         }
     }
 
-    private func scrollToAnchor(_ anchor: String) {
-        guard let heading = snapshot?.headings.first(where: { $0.slug == anchor.lowercased() || $0.slug == anchor }) else { return }
-        editor.select(range: NSRange(location: heading.range.location, length: 0))
-        editor.scrollTo(offset: heading.range.location, position: .top)
+    /// Waits for the opened tab's parse, then puts its editor at the heading once that editor is installed.
+    private func scrollToAnchor(_ anchor: String, in url: URL) async {
+        guard let document = openDocument(url), let parser = parsers[ObjectIdentifier(document)] else { return }
+        let snapshot = await parser.snapshot(atLeast: parser.version)
+        guard let heading = snapshot.headings.first(where: { $0.slug == anchor.lowercased() || $0.slug == anchor }) else { return }
+        editor.show(range: NSRange(location: heading.range.location, length: 0), in: document, position: .top)
+    }
+
+    /// The open tab's document for a file.
+    private func openDocument(_ url: URL) -> Document? {
+        tabs.items.first { $0.document.url?.standardizedFileURL == url.standardizedFileURL }?.document
     }
 
     /// Opens a file in a tab after the current one, or switches to it when already open (spec 831).
@@ -503,10 +508,6 @@ public final class WindowModel {
             return
         }
         guard let document = await loadDocument(url) else { return }
-        if url.standardizedFileURL == context.preferencesFile.standardizedFileURL
-            || url.standardizedFileURL == context.shortcutsFile.standardizedFileURL {
-            document.isPreferencesFile = true
-        }
         insertTab(TabItem(document: document, mark: mark(for: document)))
     }
 
@@ -542,19 +543,32 @@ public final class WindowModel {
             document.scrollOffset = CGFloat(state.scrollOffset)
             document.selectedRanges = state.selection.map { NSRange(location: $0.location, length: $0.length) }
         }
+        if url.standardizedFileURL == context.preferencesFile.standardizedFileURL
+            || url.standardizedFileURL == context.shortcutsFile.standardizedFileURL {
+            document.isPreferencesFile = true
+        }
         if document.url != nil { document.startWatching() }
         return document
     }
 
     /// Autosave for a newly opened document.
     private func prepare(_ document: Document) {
-        autosaves[ObjectIdentifier(document)] = AutosaveController(document: document, enabled: context.preferences.bool("file.autosave"))
+        let autosave = AutosaveController(document: document, enabled: context.preferences.bool("file.autosave"))
+        // A history entry written mid-edit would otherwise keep saying "unsaved" for text autosave has written.
+        autosave.onSaved = { [weak self, weak document] in self?.recordHistory(document) }
+        autosaves[ObjectIdentifier(document)] = autosave
     }
 
     private func forget(_ document: Document) {
         autosaves[ObjectIdentifier(document)]?.flushSync()
         autosaves[ObjectIdentifier(document)] = nil
+        parsers[ObjectIdentifier(document)] = nil
         document.stopWatching()
+    }
+
+    /// The tab's edited dot: hidden while autosave is on for a normal file (spec 871).
+    func showsEditedMark(_ tab: TabItem) -> Bool {
+        autosaves[ObjectIdentifier(tab.document)]?.showsEditedMark ?? tab.document.isEdited
     }
 
     private func mark(for document: Document) -> TabMark {
@@ -564,7 +578,7 @@ public final class WindowModel {
 
     // MARK: Switching tabs
 
-    /// Makes a tab current: saves the one being left, gives the new one a fresh parser and remembers it.
+    /// Makes a tab current: saves the one being left, attaches the new one's parser and remembers it.
     public func activate(_ tabID: TabItem.ID) {
         guard tabs.items.contains(where: { $0.id == tabID }) else { return }
         if tabs.currentID == tabID, markdown != nil { return }
@@ -585,12 +599,13 @@ public final class WindowModel {
         if window?.isKeyWindow == true { Task { await checkDisk(document) } }
     }
 
-    /// The editor forwards edits to a `MarkdownDocument` only while it is attached, so each activation parses the
-    /// tab's current text afresh; background tabs keep no parser.
+    /// The editor forwards edits to the tab's `MarkdownDocument` only while it is attached; an editor attaching to a
+    /// parser whose text differs from the tab's (a background edit) sends the whole text once.
     private func attachCurrent() {
         detachCurrent()
         guard let document = currentDocument, !document.isBackupTab else { return }
-        let parser = MarkdownDocument(text: document.text)
+        let parser = parsers[ObjectIdentifier(document)] ?? MarkdownDocument(text: document.text)
+        parsers[ObjectIdentifier(document)] = parser
         markdown = parser
         let stream = parser.snapshots
         snapshotTask = Task { [weak self] in
@@ -941,6 +956,7 @@ public final class WindowModel {
             sidebar.show(mode)
         }
         if sidebar.mode == .files, let url = currentDocument?.url { expandFolders(to: url) }
+        if sidebar.mode == .files { sidebar.filesFocusRequested = true }
         sidebarChanged()
     }
 
@@ -948,6 +964,55 @@ public final class WindowModel {
         let store = context.store, id = id, mode = sidebar.mode
         Task { try? await store.save(Self.sidebarName(id), mode) }
         updateMinimumWidth()
+        refreshChangedHeadings()
+    }
+
+    /// Headings whose section has a git line mark (spec 923); worked out only while the Outline sidebar shows.
+    private func refreshChangedHeadings() {
+        changedHeadingsTask?.cancel()
+        guard sidebar.mode == .outline, let git, let url = currentDocument?.url, let snapshot else {
+            changedHeadings = []
+            return
+        }
+        changedHeadingsTask = Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(50))
+            guard !Task.isCancelled, let committed = await git.committedText(of: url) else { return }
+            let changed = await Task.detached {
+                Self.changedHeadings(snapshot.headings, text: snapshot.text, marks: marks(for: snapshot.text, committed: committed))
+            }.value
+            guard !Task.isCancelled else { return }
+            self?.changedHeadings = changed
+        }
+    }
+
+    /// A heading's section runs from its line to the next heading's line; it is changed when a line in it has a mark.
+    nonisolated static func changedHeadings(_ headings: [Heading], text: String, marks: [LineMark]) -> Set<BlockID> {
+        guard !marks.isEmpty, !headings.isEmpty else { return [] }
+        let string = text as NSString
+        var lineStarts = [0]
+        var location = 0
+        while true {
+            let found = string.range(of: "\n", range: NSRange(location: location, length: string.length - location))
+            guard found.location != NSNotFound else { break }
+            location = NSMaxRange(found)
+            lineStarts.append(location)
+        }
+        func line(at offset: Int) -> Int {
+            var low = 0, high = lineStarts.count
+            while low < high {
+                let mid = (low + high) / 2
+                if lineStarts[mid] <= offset { low = mid + 1 } else { high = mid }
+            }
+            return low - 1
+        }
+        let marked = Set(marks.map(\.line))
+        var result: Set<BlockID> = []
+        for (index, heading) in headings.enumerated() {
+            let first = line(at: heading.range.location)
+            let end = index + 1 < headings.count ? line(at: headings[index + 1].range.location) : lineStarts.count
+            if marked.contains(where: { $0 >= first && $0 < end }) { result.insert(heading.blockID) }
+        }
+        return result
     }
 
     /// Hide Interface (spec 1023–1032): hides the tab bar, stats and sidebars; survives restart.
@@ -998,15 +1063,8 @@ public final class WindowModel {
 
     /// A task checkbox clicked in the preview edits the document, so the editor and undo see it (spec 507).
     func applyPreviewEdit(_ edit: TextEdit) {
-        guard let document = currentDocument else { return }
-        let storage = document.textStorage
-        guard NSMaxRange(edit.range) <= storage.length else { return }
-        let old = (storage.string as NSString).substring(with: edit.range)
-        let inserted = NSRange(location: edit.range.location, length: (edit.replacement as NSString).length)
-        storage.replaceCharacters(in: edit.range, with: edit.replacement)
-        document.undoManager.registerUndo(withTarget: storage) { storage in
-            MainActor.assumeIsolated { storage.replaceCharacters(in: inserted, with: old) }
-        }
+        guard currentDocument != nil else { return }
+        editor.replace(range: edit.range, with: edit.replacement)
     }
 
     private func exportPDF() {
@@ -1098,9 +1156,8 @@ public final class WindowModel {
         closePopup()
         Task {
             await openInTab(hit.url)
-            try? await Task.sleep(for: .milliseconds(50))
-            editor.select(range: hit.range)
-            editor.scrollTo(offset: hit.range.location, position: .center)
+            guard let document = openDocument(hit.url) else { return }
+            editor.show(range: hit.range, in: document, position: .center)
         }
     }
 
@@ -1129,7 +1186,7 @@ public final class WindowModel {
         let lines = BackupDiff.lines(old: text, new: original.text)
         let document = Document(text: text, url: backup.url)
         document.isBackupTab = true
-        let item = TabItem(document: document)
+        let item = TabItem(document: document, title: "\(url.lastPathComponent) | \(backup.friendlyDate)")
         backupTabs[item.id] = BackupTab(original: url, backup: backup, lines: lines)
         insertTab(item)
     }
@@ -1205,13 +1262,29 @@ public final class WindowModel {
     }
 
     private func saveMemory() {
+        updateMemory()
+        let memory = memory, store = context.store, id = id, folder = folder
+        Task { try? await TabMemory.save(memory, to: store, window: id, folder: folder) }
+    }
+
+    private func updateMemory() {
         memory.files = tabs.items.compactMap { tab in
             tab.document.isBackupTab ? nil : (tab.document.url ?? tab.document.untitledURL)?.path
         }
         let real = tabs.items.filter { !$0.document.isBackupTab }
         memory.current = real.firstIndex { $0.id == tabs.currentID }
-        let memory = memory, store = context.store, id = id, folder = folder
-        Task { try? await TabMemory.save(memory, to: store, window: id, folder: folder) }
+    }
+
+    /// Quitting (spec 746, 852–854): saves what autosave would, then writes every tab's history and unsaved text
+    /// and the tab list, returning only when all of it is on disk.
+    func saveForQuit() async {
+        let history = context.fileHistory
+        for tab in tabs.items {
+            autosaves[ObjectIdentifier(tab.document)]?.flushSync()
+            try? await history.record(tab.document)
+        }
+        updateMemory()
+        try? await TabMemory.save(memory, to: context.store, window: id, folder: folder)
     }
 
     // MARK: Esc and notifications
@@ -1277,26 +1350,15 @@ public final class WindowModel {
             focusEditor: { [weak self] in self?.editor.focus() })
     }
 
-    /// Renamed files keep their tab and backups (spec 843, 885).
+    /// Renamed files keep their tab, unsaved text and backups; the tab is updated, not reloaded (spec 843, 885).
     private func fileMoved(from old: URL, to new: URL) {
         let backups = context.backups
         Task { try? await backups.rename(from: old.path, to: new.path) }
         guard let position = tabs.items.firstIndex(where: { $0.document.url?.standardizedFileURL == old.standardizedFileURL }) else { return }
-        let wasCurrent = tabs.items[position].id == tabs.currentID
-        let tabID = tabs.items[position].id
-        forget(tabs.items[position].document)
-        Task {
-            guard let document = await loadDocument(new) else { return }
-            prepare(document)
-            guard let index = tabs.items.firstIndex(where: { $0.id == tabID }) else { return }
-            let item = TabItem(document: document, mark: mark(for: document))
-            tabs.items[index] = item
-            if wasCurrent {
-                tabs.currentID = nil
-                activate(item.id)
-            }
-            saveMemory()
-        }
+        let document = tabs.items[position].document
+        document.moved(to: new)
+        tabs.items[position].mark = mark(for: document)
+        saveMemory()
     }
 
     /// Trashed or cut files close their tabs without prompting.
@@ -1364,8 +1426,8 @@ public final class WindowModel {
             guard let self else { return }
             Task {
                 await self.openInTab(url)
-                try? await Task.sleep(for: .milliseconds(50))
-                self.editor.select(range: NSRange(location: offset, length: 0))
+                guard let document = self.openDocument(url) else { return }
+                self.editor.show(range: NSRange(location: offset, length: 0), in: document, position: nil)
             }
         }
         return actions
