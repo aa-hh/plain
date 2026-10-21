@@ -6,13 +6,14 @@ What Caret Beta 4.0.0-rc23 (caret.io, February 2019) does, written so a new app 
 
 - Source: `caret-beta.dmg`, SHA-256 `87d6468f1e7c7ab17332c2d3bc91dd6d070572b9240cc4429e9ddf0f30e2a9de`.
 - Caret is an Electron app (Intel-only). Its JavaScript is in `app.asar`. About half of its own files are empty there; their source was recovered as UTF-16 text from Electron's startup memory image, `snapshot_blob.bin`.
-- Everything was read, not run. Each section says whether a statement was seen in the code (observed-in-code) or worked out from names, menus and styles (inferred-from-names). Visual details such as spacing and the exact look of margin marks still need the running app.
+- Parts 1 to 3 were read from the code, not run. Part 4 was measured from the running app (screens at 1680 × 1020, plus 800 × 600). Each section says whether a statement was seen in the code (observed-in-code) or worked out from names, menus and styles (inferred-from-names).
 
 ## Sections
 
 1. Editor: typing, Markdown helpers, selection, find, spellcheck
 2. Preview, Markdown rendering, themes and export
 3. App shell: windows, tabs, sidebars, files, Git, preferences, licensing, updates, network use
+4. Visual design: colours, fonts, sizes and layout, measured from the running app
 
 Each section ends with its own list of unknowns.
 
@@ -1254,3 +1255,418 @@ User data folder (Electron `userData`, on macOS `~/Library/Application Support/C
 - No UI to disable analytics was found; it may have lived in an unloaded extension.
 - `Electron Helper NP/EH` and Squirrel server responses were not exercised; the update feed reply format beyond `url` is unknown.
 - Behaviour of `window:typewriter-mode` and `window:focus-mode` themselves belongs to the editor spec.
+
+# Part 4: Visual design
+
+## Caret Beta 4.0.0-rc23: visual design spec
+
+Goal: a new app built from this section should look the same as Caret on macOS at the default preferences (font `system-ui` 15px, code font Roboto Mono 13px, line height 1.6, line width 72 characters, large headings on).
+
+How to read the sources column:
+
+- `shots/NN-name.png` is a screenshot at 2x. All sizes in this document are CSS pixels (half the screenshot pixels).
+- `styles/NN-name.json` is the computed style dump taken at the same moment as the screenshot.
+- `live` means measured with the running app over the debugging port while writing this (preview measurements on `testdocs/Everything.md`).
+- `px` means a pixel sampled from the screenshot (a blended colour, so it already includes any transparency).
+- `all.css`, `default.css`, `default-dark.css` are `caret/src/css/...`; `editor--app.css`, `find.css` and so on are under `caret/src/extensions/`; preview themes are `caret/src/extensions/Preview/themes/*.css`; `snap` is `snap-src.txt` (app script compiled into the startup snapshot).
+- "rem" inside the preview resolves against the app root font size of 13px, which is why some preview values are odd numbers (0.2rem = 2.6px, 2.4rem = 31.2px).
+
+Behaviour (what happens when) lives in `docs/caret-behaviour-spec.md`. Section names there are used here: "How Markdown looks inside the editor", "Images inline", "Math", "Find in file", "Text stats", "Preview modes", "Preview themes", "Dark mode (app theme)", "Layout".
+
+### 1. Design tokens
+
+#### Colour palette (app chrome and editor)
+
+The app has two colour sets, swapped by turning on one of two stylesheets (`default.css` or `default-dark.css`) and adding the `--night` class to `body`. Names below are the CSS variable names Caret uses, so they can be searched in the source.
+
+| Token (CSS variable) | Used for | Light | Dark | Source |
+|---|---|---|---|---|
+| `--material` | window, editor, sidebar, popup background | `#FAFAFA` rgb(250,250,250) | `#282828` rgb(40,40,40) | styles/01, styles/02 (`section.editor` background) |
+| `--material-secondary` | defined, not seen on screen in these shots | `#F0F0F0` | `#232323` | default.css, default-dark.css |
+| `--material-transparent` | full-window overlays, image zoom backdrop, block-focus fade | rgba(250,250,250,0.95) | rgba(40,40,40,0.97) | same |
+| `--material-line` | 1px ring of popups, sidebar right edge in compact mode | rgba(0,0,0,0.1) | `#4D4D4D` (hsl 0 0% 30%) | same |
+| `--material-thumb` | editor scrollbar slider | rgba(82,82,82,0.8) | rgba(153,153,153,0.9) | styles/01, styles/02 (`editor__scrollbar__slider`) |
+| `--color` | body text, cursor, find box background | `#4C4C4C` rgb(76,76,76) | `#BFBFBF` rgb(191,191,191) | styles/01, styles/02 |
+| `--color-secondary` | sidebar and tab text, list markers, code text, front matter text | `#7F7F7F` rgb(127,127,127) | `#999999` rgb(153,153,153) | same |
+| `--color-tertiary` | faded Markdown markers, file extensions, placeholders, word count, margin heading labels | `#B3B3B3` rgb(179,179,179) | `#666666` rgb(102,102,102) | same |
+| `--color-em` | headings in dark mode | not defined, so headings fall back to `--color` (rgb 76) | `#CCCCCC` rgb(204,204,204) | default-dark.css; styles/01 vs styles/02 `block-header__text` |
+| `--color-blue` | link text, bare URLs, `[[toc]]`, footnote ref text, notification text | `#8599AE` rgb(133,153,174) | `#8799AC` rgb(135,153,172) | styles/01, styles/02 (`inline-link__text`) |
+| `--color-red` | `+++` page break, math function names, spelling-correction match | `#D98C8C` rgb(217,140,140) | rgba(232,125,125,0.7) | styles/17 (`block-page-break`), styles/02 (`span.function`) |
+| `--color-gold` | inline code text, inline math text, code attribute names | `#C18B8B` rgb(193,139,139) | `#A8998A` rgb(168,153,138) | styles/01, styles/02 (`inline-code__text`) |
+| `--selection-blue` | editor selection, selected list row (focused) | rgba(71,153,235,0.25), blends to `#D3E1F5` | rgba(95,127,159,0.25) | styles/41; px shots/41 at (600,100) |
+| `--selection-neutral` | selected list row in an unfocused window, open file in sidebar, editor selection when the editor is not focused | rgba(204,204,204,0.25), blends to `#EEEEEE` | rgba(70,70,70,0.25), blends to `#303030` | styles/01, styles/02 (`list__item--open`); px shots/01 (100,130) and shots/02 (100,130) |
+| `--selection-yellow` | find: other matches | `#FEEBB5` rgb(254,235,181) | hsl(45,20%,45%) = about `#8A7E5C` | styles/21; dark from default-dark.css |
+| `--selection-orange` | find: current match | `#FEC7B5` rgb(254,199,181) | hsl(15,25%,45%) = about `#8F6456` | same |
+| `--highlight` | band behind front matter, code block and math source lines; bracket and word match | rgba(0,0,0,0.04), blends to `#F0F0F0` | rgba(255,255,255,0.04), blends to `#303030` | styles/01 (`editor__highlight--md-background`); px shots/01 (1000,130), shots/02 (1000,130) |
+| `--highlight-info` | background of `::highlighted::` text | rgba(140,217,179,0.5), blends to about `#C3EAD7` | rgba(61,92,92,0.8), blends to about `#395252` | styles/01, styles/02 (`inline-highlight`) |
+| `--highlight-error` | spellcheck underline; find box when nothing matches | rgba(255,77,77,0.5) | `#995555` | styles/34 (`editor__highlight--spellcheck`), default-dark.css |
+| `--highlight-input` | text selection inside text fields | rgba(0,0,0,0.08) | rgba(255,255,255,0.1) | all.css (`input::selection`) |
+| window background while loading | native window colour before the page paints | `#F9F9F9` | `#1D1D1D` | `caret/src/main/Application.js` |
+
+Shadows (popup ring, not a blur shadow):
+
+| Name | Light | Dark | Used by | Source |
+|---|---|---|---|---|
+| `--shadow` | 1px ring rgba(0,0,0,0.1), then a 7px ring rgba(0,0,0,0.025) | 1px ring `#4D4D4D`, then a 7px ring rgba(40,40,40,0.5) | go to file, go to heading, commands, backups, tabs switcher, find in folder | default.css / default-dark.css; visible in shots/24, shots/26 |
+| `--shadow-small` | 1px ring rgba(0,0,0,0.1), then a 5px ring rgba(0,0,0,0.025) | 1px ring `#4D4D4D`, then a 5px ring rgba(40,40,40,0.5) | autocomplete list, right-click menu | styles/34 (`list--autocomplete` box-shadow) |
+
+Both rings are spread-only box shadows (0 offset, 0 blur), so a popup looks like a card with a thin grey border and a very faint 7px halo.
+
+#### Fonts
+
+| Role | Family (as computed) | Size | Source |
+|---|---|---|---|
+| UI (tabs, sidebar, popups, word count, find box) | `-apple-system, system-ui, "Segoe WPC", "Segoe UI", HelveticaNeue-Light, Ubuntu, "Droid Sans", sans-serif` | 13px, line height 24px | styles/01 (`section.app`); all.css `--font-family` |
+| Prose in the editor (paragraphs, headings, list and quote text, link text) | `system-ui` (the `font` preference) | 15px (the `fontSize` preference, range 10 to 30) | live `.editor` inline style; styles/01 (`block-paragraph`); snap preference defaults |
+| Code in the editor (fences, front matter, tables, markers, inline code) | `"Roboto Mono"` (the `codeFont` preference) | 13px (the `codeFontSize` preference, range 10 to 30); inline code and inline math use 13/15 = 0.8667em so they also land on 13px | same |
+| Heading margin labels (`h1`..`h6`) | `SFMono-Regular, Consolas, "Liberation Mono", Menlo, Courier, monospace` | code size minus 2 = 11px, normal weight | live `::before` of `.block-header__marker` |
+| Popup filter field | UI family, weight 300 | 26px, line height 72px | styles/23 (`input.list__filter`) |
+| Empty window glyph `×` | UI family | 52px | styles/33 (`div.empty`) |
+| Math in editor and preview | KaTeX fonts | see sections 3 and 4 | styles/01 (`span.katex`) |
+
+Font files that ship:
+
+- `caret/src/fonts/Roboto+Mono/Roboto+Mono-400-normal.woff` and `-700-normal.woff` (declared in all.css as `Roboto Mono` 400 and 700).
+- KaTeX fonts in `node_modules/katex/dist/fonts`: AMS, Caligraphic, Fraktur, Main (regular, bold, italic), Math (italic, bold italic), SansSerif, Script, Size1 to Size4, Typewriter.
+- `extensions/Editor/fonts-data/Roboto+Mono-400/700-normal.bfkm` and `.js`: character width and kerning tables the editor uses for line wrapping (not drawn).
+- all.css also declares Merriweather (400/700, normal/italic, `.ttf`), but no `fonts/Merriweather` folder exists in the package. The dark preview theme asks for `Fira Mono`, which is not shipped either.
+- `system-ui` on macOS resolves to the system font (San Francisco). Ligatures are turned off app-wide (`font-feature-settings: "liga" 0` on the root), and kerning is turned off in the editor, paragraphs and h1 by an inline stylesheet the app injects (live).
+
+#### Type scale
+
+| Element | Font | Size | Weight | Line height | Colour (light / dark) | Source |
+|---|---|---|---|---|---|---|
+| Tab / title text | UI | 13px | normal | 24px | open tab `#7F7F7F` / `#999999`; other tabs `#B3B3B3` / `#666666` | styles/39, styles/42 |
+| Sidebar row | UI | 13px | normal | 24px (row height 24) | name `#7F7F7F` / `#999999`; extension `#B3B3B3` / `#666666` | styles/01, styles/02 |
+| Body paragraph (editor) | system-ui | 15px | normal | 24px (15 × 1.6) | `#4C4C4C` / `#BFBFBF` | styles/01 |
+| h1 (editor, large headings on) | system-ui | 21px (15 × 1.4) | bold | 33.6px | `#4C4C4C` / `#CCCCCC` | styles/01, styles/02 |
+| h2 (editor) | system-ui | 18px (15 × 1.2) | bold | 28.8px | same | styles/01 |
+| h3 to h6 (editor) | system-ui | 15px | bold | 24px | same | styles/01 |
+| Headings with large headings off | system-ui | 15px for all levels | bold | 24px | same | all.css (`editor--large-headings` rules only apply when on) |
+| Code, front matter, tables, markers | Roboto Mono | 13px | normal | 24px | see section 3 | styles/01 |
+| Heading margin label | SFMono stack | 11px | normal | n/a | `#B3B3B3` / `#666666` | live |
+| Word count | UI | 13px | normal | 24px | `#B3B3B3` / `#666666` | styles/08 |
+| Popup filter text | UI | 26px | 300 | 72px | `#4C4C4C` (typed), `#B3B3B3` (placeholder) | styles/23, shots/26 |
+| Popup row | UI | 13px | normal | 24px | `#7F7F7F`; prefix and shortcut `#B3B3B3` | styles/26 |
+| Autocomplete / right-click menu row | UI | 14px | normal | 26px | `#4C4C4C` | styles/34 |
+| Rendered math block (editor) | KaTeX | container 19.5px (1.5 × 13), KaTeX text 23.6px | normal | n/a | `--color` | styles/01 (`math-preview`, `span.katex`) |
+
+Preview type sizes are in section 4.
+
+#### Spacing, sizes and radii
+
+| Value | Where | Source |
+|---|---|---|
+| 48px | height of the tab strip (title bar); editor starts 48px down | styles/01 (`section.tabs`, `section.editor` margin) |
+| 96px | first text line's top (48 strip + 48 editor top padding) | styles/01 (`editor__line` y = 96) |
+| 96px | editor bottom padding | styles/01 |
+| 80px | editor side padding (minimum page margin); tab strip side padding | styles/01 |
+| 562px | editor text column width = ceil(72 × width of "a" in 15px system-ui) | live `--page-max-width: calc(562px + 160px)`; snap |
+| 200px | sidebar width | all.css `--sidebar-width`; styles/01 |
+| 20px | horizontal padding of sidebar and popup rows | styles/01, styles/23 |
+| 16px | per-level indent in outline and go-to-heading rows; icon box width | styles/06, styles/25 |
+| 360px | popup width | styles/23 (row width) |
+| 6px | popup and find box corner radius (`--border-radius`) | all.css; styles/21, styles/34 |
+| 3px | small radius (license field, purchase button) and scrollbar slider radius | all.css |
+| 24px | one line (rhythm unit for UI and body text) | styles/01 |
+
+### 2. Window layout
+
+Reference window: 1680 × 1020, maximised, light, files sidebar open (styles/01, shots/01).
+
+#### Title bar and tabs
+
+- No visible title bar. The window uses macOS `hiddenInset` style, so the native traffic lights sit over the top-left of the page (`main/Application.js`).
+- The top 48px is the tab strip and the window drag area. It has the window background colour and no border (styles/01, shots/01).
+- Tabs sit in one centred row: row padding 9px top and 80px left and right; each tab is 30px tall (3px top and bottom padding, 10px left and right), maximum 200px wide, text 13px (styles/01, styles/39).
+- With one file open the strip shows only its name, centred, which reads like a window title (shots/01: "Everything.md" centred at x 840).
+- Open tab: `--color-secondary`. Other tabs: `--color-tertiary`. No background, underline or border on any tab (styles/39, shots/41).
+- Unsaved file: a `•` after the name, 5px gap, 13px, same colour as that tab's text (live `::after`; shots/41 "Untitled •").
+- A file outside the open folder gets `⇾` before its name, 5px gap (all.css `list__item--outside-file`).
+- Untitled files are named "Untitled" (shots/41).
+
+#### Sidebar
+
+- 200px wide, from y 48 to the bottom, same colour as the window, no visible border and no scrollbar (styles/01; all.css).
+- List starts 48px below the sidebar top (first row at y 96, the same line as the first editor line) (styles/01).
+- Rows: 24px tall, 20px left and right padding, 16px icon box then the name (styles/01).
+- In compact or narrow windows (`--compact` or `--resized`), the list gets a 1px right edge in `--material-line` (all.css).
+- The 48px at the top and 96px at the bottom of the sidebar fade the list out with a 1px inset edge in window colour (all.css `.sidebar::before/::after`). It reads as blank space.
+
+#### Editor column
+
+- The editor area spans the whole window under the tab strip. Its text column is 562px wide, centred in the editor area (styles/01: column x 559 to 1121, centre 840 = window centre).
+- With the sidebar open in a maximised window, the column does not move. The sidebar overlays the empty left margin (styles/01 vs styles/07: column x 559 in both).
+- The editor area is shifted right by `left = (screen width − window width) × 200 / (screen width − (722 + 200 + preview width))` pixels, so it slides further right as the window gets narrower (snap `_resizeSidebar`).
+- When the window is narrower than 722 + 200 + preview width, or that free space is under 200px, `body` gets `--compact` and the editor area is shifted by the full 200px, so the sidebar sits beside it instead of over it (snap; styles/42: editor area x 200 to 800).
+- In a narrow editor area the column shrinks to (area width − 160) and stays centred: 440px in an 800px window with sidebar (styles/42, styles/43).
+- Typewriter mode only changes the editor padding to 450px top and 498px bottom in a 1020px window, so the caret line sits at the vertical middle (styles/09).
+
+#### Margin heading labels
+
+- ATX heading markers (`#`, `##`) are not drawn. In their place a label ` h1 ` to ` h6 ` sits in the left margin, ending just before the text column: marker box x 533 to 560, the label inside it is 11px SFMono, `--color-tertiary` (styles/01 `block-header__marker`; live; shots/01 labels at about x 540 to 553).
+- The label sits on the heading's baseline area, vertically centred on the heading line by eye (shots/01).
+
+#### Word count
+
+- Bottom-right corner of the window: 12px from the bottom, 20px from the right, 13px UI text, `--color-tertiary`, with a window-coloured background so text scrolling under it is hidden (styles/08: rect x 1623, y 984, 37 × 24, text "173 W").
+- Clicking marks it selected: background `--selection-blue` (all.css `text-stats--selected`).
+
+#### Split preview
+
+- Without sidebar: editor half and preview half, each 50% of the window (preview.css).
+- With sidebar: the editor side (tab strip included) is 50% + 100px wide, the preview 50% − 100px (styles/04: app 0 to 940, preview 940 to 1680, width 740).
+- The tab strip only spans the editor side; tabs stay centred within it (styles/04: open tab at x 416).
+- In the reference window, split preview with sidebar makes the layout compact: editor area x 200 to 940, column 562px centred in it at x 289 (styles/04).
+- Preview pane: its own background (white in Default and GitHub themes, rgb(20,20,20) in Dark), no divider line between editor and preview (styles/04, shots/04).
+- Dark app mode does not change the preview theme. A dark editor beside a white preview is normal (shots/03, styles/03).
+
+#### Full preview
+
+- The preview covers the whole window including the tab strip and sidebar: rect 0,0 to 1680,1020 (live `preview--full-screen`).
+- Content column centred; widths per theme in section 4.
+
+#### Window size
+
+- Minimum size 400 × 400. Minimum width doubles to 800 while a preview is visible, and gains 260px while a sidebar is visible. If the window is narrower than the new minimum, the app widens it (snap `_updateMinWindowWidth`).
+- So split preview plus sidebar forces at least 1060px: shots/44 shows an 800 × 600 window widened to 1060 × 600 (editor side 630, preview 430).
+
+#### Empty window
+
+- With no tab open the window shows a centred `×` in 52px, `--color-tertiary`, on the window background (styles/33, shots/33).
+
+#### Stacking (back to front)
+
+footer (find box, notifications) → sidebar → popups → tab strip → About / License / Purchase overlays → full preview → Windows buttons → disabled-app notice (all.css z-index 1 to 8).
+
+### 3. Editor rendering per Markdown element
+
+General rule: every Markdown character stays visible. Markers are faded to `--color-tertiary`, content keeps the normal colour. Prose runs use the prose font (15px system-ui); markers of block elements and all code-like content use Roboto Mono 13px. All lines are 24px tall except large headings.
+
+Colours below are light / dark. Sources: styles/01 and styles/02 for the top of `Everything.md`, styles/17 and styles/18 for the bottom, shots/01, shots/02, shots/17.
+
+| Element | What is drawn | Font | Colours |
+|---|---|---|---|
+| Front matter `---` ... `---` | Fence lines faded. Inner lines in a full-column-width band (562px, 24px per line); the fences have no band. | Mono 13 | fences `#B3B3B3` / `#666666`; text, keys and colons `#7F7F7F` / `#999999`; band `--highlight` (`#F0F0F0` / `#303030` blended) |
+| `[[toc]]` | Plain text | Mono 13 | `--color-blue` |
+| ATX heading `#`..`######` | Marker hidden, margin label shown (section 2). Text bold. h1 line box about 33px, h2 about 29px | Prose, 21 / 18 / 15 / 15 / 15 / 15 px | light `#4C4C4C`, dark `#CCCCCC` |
+| Setext heading (`===`/`---` underline) | Whole heading in code font, bold; large headings make it 1.4× / 1.2× with 1.5em line height | Mono, editor font size | `--color` (all.css) |
+| `**bold**` | Markers bold and faded, text bold | Prose 15 bold | markers `#B3B3B3` / `#666666`; text `--color` |
+| `_italic_` | Markers italic and faded, text italic | Prose 15 italic | same pattern |
+| `~~struck~~` | Markers faded; text in secondary colour with line-through | Prose 15 | text `#7F7F7F` / `#999999` |
+| `::highlighted::` | Background over the whole run including markers; markers in secondary colour | Prose 15 | background `--highlight-info`; markers `#7F7F7F` / `#999999`; text `--color` |
+| `` `inline code` `` | Backticks faded, text gold. No background box | Mono 13 (0.8667em) | text `#C18B8B` / `#A8998A` |
+| `[link](url)` | Brackets, parentheses and URL faded; link text blue | Prose 15 | text `--color-blue`; rest `--color-tertiary` |
+| Bare URL `https://...` | Whole URL blue | Prose 15 | `--color-blue` |
+| `<autolink>` | Angle brackets faded, URL blue | Prose 15 | all.css |
+| `:smile:` emoji | Not converted to a picture. Colons faded, name in secondary colour | Prose 15 | `#7F7F7F` / `#999999` name |
+| Footnote ref `[^1]` | Brackets faded, `^1` blue | Prose 15 | `--color-blue` |
+| Block quote `> ` | Marker in mono, secondary colour; text in prose. No bar, no indent beyond the marker width (16px) | marker Mono 13, text Prose 15 | marker `#7F7F7F` / `#999999` |
+| Bullet `- ` | Marker in mono, secondary colour; nested items keep their leading spaces in the marker (`  - ` is 31px wide) | same | same |
+| Ordered `1. ` | Same as bullets (marker 23px wide) | same | same |
+| Task `- [ ] ` / `- [x] ` | Whole marker including box text in mono, secondary colour. Checked tasks look the same as open ones (no strike, no fade) | same | same |
+| Inline math `$E = mc^2$` | Dollars faded, content gold | Mono 13 | as inline code |
+| Math block `$$$` ... `$$$` | Rendered with KaTeX in place of the source lines, left aligned, at 1.5 × 13 = 19.5px (KaTeX glyphs about 23.6px). Source lines hidden behind a window-coloured cover. When the caret is inside, or the find box is open, the source shows instead: mono, secondary colour, `\int`-style commands red, braces faded, source lines on the `--highlight` band | KaTeX / Mono 13 | rendered math in `--color` (styles/01 `math-preview`; shots/21 shows the source state) |
+| Code fence | Fence lines (```` ```js ````) faded, no band. Code lines on a full-width `--highlight` band, text secondary colour with token colours below | Mono 13 | shots/17 |
+| Table | Whole table in mono (cells too). Pipes and the divider row faded; cell text secondary colour. No grid lines, no band | Mono 13 | pipes `#B3B3B3`, text `#7F7F7F` (styles/17) |
+| Image line `![alt](photo.png)` | Source line hidden and the picture shown instead, left edge on the text column, 6px space above and below. Height is the image scaled to fit the column, capped at 200px (480 × 270 file drawn at 356 × 200). No border, no radius | n/a | styles/17 (`img.image-preview`), shots/17 |
+| Raw HTML | Tags, attribute names and values in mono 13 secondary; `<`, `>`, `=`, quotes faded; the text between tags stays in prose font and normal colour | Mono 13 + Prose 15 | styles/17 (`inline-tag`), shots/17 |
+| Thematic break `---` | Plain faded text, no rule drawn | Mono 13 | `--color-tertiary` |
+| Page break `+++` | Red text, no rule drawn | Mono 13 | `--color-red` |
+| Footnote definition `[^1]: text` | Label in mono; text in prose; the whole block in secondary colour | Mono 13 + Prose 15 | `#7F7F7F` / `#999999` |
+| Indented code, reference definition, HTML comment | Secondary colour | Mono 13 | all.css |
+| Hard line break | A `↓` glyph after the line end, 0.15em gap, secondary colour | Mono 13 | all.css `inline-line-break::after` |
+| Escape `\*` | Backslash faded | Prose | all.css |
+
+#### Code token colours (editor, fenced blocks)
+
+Token class names are the Prism names, so a rebuild can use Prism or any highlighter with the same names. Tokens without a colour here take the code text colour (`--color-secondary`).
+
+| Token | Light | Dark | Source |
+|---|---|---|---|
+| keyword, function, tag | `#997799` | `#997799` | styles/17 (`span.keyword`, `span.function`) |
+| string | `#CC8888` | `#AA7777` | styles/17, styles/30; default-dark.css |
+| number | `#6688AA` | `#6688AA` | styles/17, styles/30 |
+| boolean | `#669999` | `#669999` | styles/30 |
+| property | `#CC8888` | `#AA7777` | default.css |
+| variable | `#668888` | `#668888` | default.css |
+| attr-name | `#C18B8B` (gold) | `#A8998A` (gold) | default.css |
+| attr-value | `#6688AA` | `#AA7777` | default.css |
+| comment, punctuation, shell comment | `--color-tertiary` | `--color-tertiary` | styles/17 (`span.comment`) |
+| operator, interpolation, YAML key | `--color-secondary` | `--color-secondary` | styles/17, styles/30 |
+
+#### Cursor, selection and other overlays
+
+| Item | Look | Source |
+|---|---|---|
+| Caret | 1px wide bar in `--color`, inset 3px from the top and bottom of the line box. Blinks 500ms on, 500ms off; restarts on every move; hidden while the editor is not focused | all.css; snap `_blinkCursor` |
+| Extra carets (multi-cursor) | Same bar in `--color-secondary` | all.css |
+| Selection | `--selection-blue` behind the text; covers to the column's right edge for lines selected through their end (shots/41) | styles/41 |
+| Selection when the editor is not focused | `--selection-neutral` | all.css `editor--blurred` |
+| Find matches | other matches `--selection-yellow`, current `--selection-orange`; text in matches drawn in `--color-em` | styles/21, shots/21 |
+| Spelling mistake | 3px solid underline in `--highlight-error`, as a bottom border of the word box | styles/34 |
+| Matching bracket, other occurrences of the word under the caret (code) | `--highlight` background | all.css |
+| Image selected (caret at image line start) | Image covered by `--selection-blue` at 70% opacity | editor--app.css |
+| Block focus (focus mode) | Other blocks covered by `--material-transparent` | all.css |
+| Git marks | `+`, `~` or `D` in tertiary colour, 30px right of the column's right edge | editor--app.css |
+| Backup comparison | added lines rgba hsl(150,100%,75%) at 0.2, deleted lines hsl(0,100%,75%) at 0.2 | backups.css |
+| Editor scrollbar | 16px track at the right edge of the editor; slider 7px wide, 2px from the right, radius 3px, `--material-thumb`. Hidden until scrolling, hides 750ms after scrolling stops with a 0.3s fade | editor.css; snap scrollbar code |
+| Native text selection | Hidden (the editor draws its own) | editor.css |
+| Mouse cursor | I-beam over the editor. In dark mode on macOS the app swaps in its own light I-beam image | all.css |
+
+### 4. Preview themes
+
+The preview is rendered inside its own isolated style scope. Three themes ship: Default, GitHub, Dark. The app's dark mode does not switch the preview theme. All values measured live on `testdocs/Everything.md` in full preview, 1680px window, unless the source column says otherwise; CSS files are `extensions/Preview/themes/*.css` and `extensions/Preview/css/base.css`.
+
+| Item | Default | GitHub | Dark |
+|---|---|---|---|
+| Background | `#FFFFFF` | `#FFFFFF` | rgb(20,20,20) (hsl 0 0% 8%) |
+| Body font | `system-ui, sans-serif` | `"Helvetica Neue", Helvetica, "Segoe UI", Arial, freesans, sans-serif` + emoji fonts | `system-ui, sans-serif` |
+| Body size / line height | 16px / 28.8px (1.8em) | 16px / 25.6px (1.6) | 15px / 24.7px (1.9rem) |
+| Body colour | `#333333` | `#333333` | `#AAAAAA` |
+| Content column max width | 626px | 890px | 626px |
+| Pane padding (top/bottom, sides) | 100.8px, 80px (3.5 lines) | 84px, 80px | 86.45px, 80px |
+| Paragraph margin | 16px top, 28.8px bottom | 0 top, 16px bottom | 15px top, 24.7px bottom |
+| Headings font / weight | system-ui, bold | Helvetica stack, bold | system-ui, normal weight, line height normal |
+| h1 | 32px, line height 28.8, margin 86.4 top / 57.6 bottom | 36px, line height 43.2, 1px `#EEEEEE` bottom border, 10.8px bottom padding, margin 36 / 16 | 26px, margin 37.05 / 24.7 |
+| h2 | 24px, margin 64.8 / 43.2 | 28px, line height 34.3, 1px `#EEEEEE` bottom border, 8.4px padding, margin 28 / 16 | 22.1px, margin 37.05 / 24.7 |
+| h3 | 16px, margin 43.2 / 28.8 | 24px, margin 24 / 16 | 18.2px |
+| h4 | 16px | 20px, margin 20 / 16 | 18.2px |
+| h5 | 16px | 16px, margin 16 / 16 | 18.2px |
+| h6 | 16px | 16px, colour `#777777` | 18.2px |
+| Heading colour | body colour | body colour (h6 `#777777`) | body colour |
+| Links | `#7799BB`, no underline | `#4078C0`, underline on hover and press | `#88AACC`, no underline |
+| Bold / italic / strike | bold / italic / line-through in body colour | same | same |
+| `mark` (`::text::`) | browser default: yellow `#FFFF00` background, black text | same | same (unstyled by all three themes) |
+| Inline code | Roboto Mono 13.6px (0.85em), `#444444` on `#F3F3F3`, radius 2px, padding 1.36px 6.8px, margin 0 2.72px | Consolas, "Liberation Mono", Menlo, Courier, monospace 13.6px, `#333333` on rgba(0,0,0,0.04), radius 3px, padding 2.72px 0 plus a non-breaking space before and after | Roboto Mono 12.35px (0.95rem), `#AAAAAA` on `#292929`, radius 2px, padding 1.3px 6.5px, margin 0 2.6px |
+| Code block | `#F3F3F3` background, no radius, padding 14.4px 15.6px, margin 16 top 28.8 bottom; code Roboto Mono 13.6px, line height 28.8px, `#444444` | `#F7F7F7`, radius 3px, padding 16px, margin 0 0 16; Consolas stack 13.6px, line height 19.72px (1.45) | `#292929`, no radius, padding 12.35px 15.6px; block font `"Fira Mono", monospace` 15px, code inside Roboto Mono 12.35px, line height 24.7px |
+| Code tokens | keyword, tag `#AA77AA`; function, attr-value `#6688AA`; string, number, boolean, regex `#66AA88`; comment `#AAAAAA`; punctuation, operator `#888888`; selector, attr-name, url `#998877`; variable, property, key `#AA6666` | same as Default | as Default except comment `#777777`, punctuation and operator `#999999` |
+| Block quote | 2.6px (0.2rem) left border `#DDDDDD`, 13px left padding, text `#999999`, margin 16 / 40 right / 16 | 4px left border `#DDDDDD`, padding 0 15px, text `#777777`, margin 0 0 16 | 2.6px left border `#333333`, 13px padding, text `#777777` |
+| Lists | left padding 31.2px (2.4rem), disc / decimal; nested lists no bottom margin; ordered inside lists lower-roman | left padding 32px, nested bullets circle, nested ordered lower-roman then lower-alpha | as Default |
+| Task list items | no bullet; native checkbox pulled 20.8px left, width 16.9px (1.3rem) | no bullet; checkbox margin 0 0.2em 0.25em −1.6em; 3px between items | as Default |
+| Table | full width, collapsed borders; 3.9px (0.3rem) `#DDDDDD` rule above the table, 2.6px rule above the first body row, 3.9px rule below the last row; no vertical lines; th normal weight, left aligned; cell padding 7.2px 7.8px, first cell no left padding, last cell no right padding | block display, width of content; every cell 1px `#DDDDDD` border, padding 6px 13px; th bold; even rows `#F8F8F8`; rows 1px `#CCCCCC` top | as Default with `#333333` rules, cell padding 6.175px 7.8px |
+| Image | natural size, max width 100%, no border | white background behind images | as Default |
+| Horizontal rule | 2.6px `#DDDDDD` top border, margin 8 top / 28.8 bottom | 4px bar `#E7E7E7` (bottom border `#EEEEEE`), margin 16 | 2.6px `#333333`, margin 7.5 / 24.7 |
+| Table of contents (`[[toc]]`) | plain nested bullet list of heading links, same as a normal list | same | same |
+| Math block | 19.2px (1.2em), left aligned, padding 11.52px 0, margin 19.2 top / 28 bottom, radius 4px, scrolls sideways if wide | centred, padding 7.8px 0, margin 16 | 26px (2rem), left aligned, padding 7.8px 0, margin 26 / 28 |
+| Inline math | KaTeX 19.36px | KaTeX 19.36px | KaTeX 18.15px |
+| Footnote ref | superscript `[1]` at 13.33px in link colour | same, link colour | 12.5px, link colour |
+| Footnotes block | rule above (same as `hr`), then a numbered list with the text and a `↩︎` back link in link colour | same | same |
+| Emoji `:smile:` | rendered as the emoji character 😄 at text size | same | same |
+| Page break `+++` | invisible (0px tall); forces a page break in print/PDF | same | same |
+| Text selection | browser default | browser default | rgba(255,255,255,0.1) |
+| Print | body forced to 14px; page padding 48px top/bottom, 32px sides | 14px | 14px |
+
+Sources for the table: live measurement (`work/prev-default.json`, `work/prev-github.json`, `work/prev-dark.json` written during this session) and the theme CSS files for hover, nesting, print and selection. Screenshots: shots/11 to shots/16.
+
+### 5. Pop-ups and panels
+
+#### Shared popup card (go to file, go to heading, commands, backups, tabs switcher, find in folder)
+
+- 360px wide, centred horizontally on the window, top edge 96px from the window top (styles/23: rows x 660 to 1020; all.css `--top-padding`).
+- Background `--material`, radius 6px, `--shadow` ring (section 1). No dimming of the window behind (shots/24).
+- Header: 72px tall, 20px side padding. It holds the filter field: 26px, weight 300, `--color` when typed. Empty field shows the popup name as placeholder in `--color-tertiary` ("Commands", "Backups") (styles/23, shots/26, crops of shots/28).
+- List under the header: rows 24px, 20px side padding, at most 16 rows visible (384px), then it scrolls; 12px empty space under the last row. When the list is empty it is removed and the card is only the 72px header (shots/22, shots/28).
+- Row text `--color-secondary`. Faded parts (file extension, folder, menu group, shortcut) `--color-tertiary`.
+- Selected row: `--selection-blue` when the window is focused (shots/39), `--selection-neutral` when it is not (styles/23, shots/24).
+- Typed letters that match are underlined in the row, skipping descenders (styles/24 `list__item__match`).
+- A macOS overlay scrollbar shows inside the list when it scrolls (shots/26).
+
+Per popup:
+
+| Popup | Row content | Source |
+|---|---|---|
+| Go to file | file icon, name, faded `.ext`, faded ` in <folder>` | styles/24, shots/24 |
+| Go to heading | heading icon (h1..h6 glyph), 16px indent per level below h1, heading text | styles/25 |
+| Commands | faded `Group ›` prefix, command name, ` ✓` after checked toggles, shortcut right-aligned in faded text with 10px left gap (for example `⌘ ,`, `⌘ ⇧ S`) | styles/26, shots/26 |
+| Backups | same card; placeholder "Backups"; rows not captured (no backups existed) | shots/28 |
+| Tabs switcher (Ctrl+Tab) | no filter field; the header shows the word "Tabs" in the placeholder style (26px, weight 300, tertiary); rows: text-file icon and file name | shots/39, all.css `ctrl-tab` |
+| Find in folder | filter field with the search text; result rows: file rows in tertiary with a `›` 7px after the name, which turns 90° when the file is expanded (9px gap); match rows under it | shots/22; find-in-files.css (result rows not captured) |
+
+#### Find box
+
+- Small dark box (light mode) in the bottom-right: 210px wide, 48px tall, 30px from the right and bottom edges, padding 12px 15px, radius 6px (styles/21, shots/21).
+- Background `--color` (`#4C4C4C` light, `#BFBFBF` dark), so it is the inverse of the window. Text `--material` (`#FAFAFA` light, `#282828` dark), 13px UI font.
+- No matches: background turns `--highlight-error` (find.css).
+- While it is open, rendered math blocks show their source (shots/21; snap).
+
+#### Autocomplete list (emoji, paths) and right-click menu
+
+- Card under the current line, left edge 15px left of the text being completed: background `--material`, radius 6px, `--shadow-small`, padding 12px top and bottom (styles/34, shots/34).
+- Rows 26px tall, 14px UI font, `--color`, 20px side padding. Selected row `--selection-blue`.
+- Emoji rows: the emoji, 14px gap, then the name ("smile", "smirk cat") (crop of shots/34).
+- Right-click menu uses the same card; a spelling suggestion that matches is drawn in `--color-red` (editor--app.css).
+
+#### Files sidebar
+
+- Row: 16px icon box, then the name in secondary colour, then the extension in tertiary colour (`Everything` + `.md`) (shots/10).
+- Open file row: `--selection-neutral` background. Selected row while the sidebar has focus: `--selection-blue`; this stays blue even when the window is unfocused (styles/17; all.css rule order).
+- Icons are tiny pixel drawings, 9px wide × 7px tall, at the bottom-left of a 16 × 16 box, filled `--color-tertiary` (live SVG; all.css `.list__item .icon`). Five file icons exist (snap `getIconHtml`):
+  - folder closed: a folder outline with a tab and three small vertical slots;
+  - folder open: a filled folder shape;
+  - text file (`.md`, `.mdown`, `.markdown`, `.txt`): four horizontal lines, alternating long and short, like a paragraph;
+  - image (`.png`, `.jpg`, `.gif`): a checkerboard-like dotted pattern;
+  - any other file: a grid of dots.
+- Files the app cannot open get `list__item--non-openable` but look the same in the shots (styles/01, `photo.png`).
+- Drag target line: 2px bottom border in `--color` (files-sidebar.css).
+
+#### Outline sidebar
+
+- Same 200px sidebar. Rows: heading icon (a small box with H1..H6 drawn in pixels), heading text; each level below h1 indents 16px; long text ends with `…` (styles/06, crop of shots/06).
+- Current heading row: `--selection-blue` (styles/06).
+
+#### Preferences and Keyboard Shortcuts
+
+- Both open as ordinary editor tabs (`Preferences.md`, `Keyboard Shortcuts.md`) and use the editor's Markdown look; nothing special is drawn (shots/30, shots/31).
+- Preferences: h1 "Preferences", one paragraph, a ` ```yaml ` block on the code band (keys secondary, colons tertiary, numbers `#6688AA`, strings `#CC8888`, `true` `#669999`), then a paragraph with two links (styles/30).
+- Keyboard Shortcuts: h2 per menu ("File", ...), each followed by a YAML block of `command: shortcut` lines (styles/31).
+
+#### Other panels
+
+- Notification bar (bottom of the editor column): centred text in `--color-blue`, 13px padding, 1px top border in the text colour, buttons written as `[ Label ]` with 13px gap (all.css). Not captured.
+- About / License / Purchase overlays: full window, `--material-transparent` background, content centred; title 26px in `--color`; License field and Purchase button are `--color` blocks with `--material` text, radius 3px (all.css). macOS uses the native About panel instead (shots/29 not useful).
+- Image zoom: window covered by `--material-transparent`, the image moved to the window centre and scaled up to fit (window minus 120px, never above natural size); cursor zoom-out (snap `_zoom`).
+
+### 6. Focus, dark mode, hover and motion
+
+#### Focused vs unfocused window
+
+`body` gets `--blurred` when the window loses focus. Only these change (all.css; compare shots/23 and shots/39):
+
+- Selected rows in popup lists: `--selection-blue` → `--selection-neutral`.
+- The sidebar gets `sidebar--blurred` but its selected row stays blue (rule order in all.css).
+- The editor's own focus is separate: when the editor loses focus the caret is hidden and the selection turns `--selection-neutral`.
+- Tabs, text colours and backgrounds do not change.
+
+#### Dark mode
+
+Everything in section 1's dark column applies. In addition:
+
+- Headings use `--color-em` `#CCCCCC`, brighter than body text `#BFBFBF`; in light mode headings and body are the same `#4C4C4C` (styles/01 vs styles/02).
+- Inline code and inline math text turn from pinkish gold `#C18B8B` to brownish gold `#A8998A`; code strings and properties turn `#AA7777`.
+- The find box becomes a light grey `#BFBFBF` box with dark text.
+- Popup ring becomes a solid 1px `#4D4D4D` line plus a 7px dark halo.
+- Custom light I-beam mouse cursor over text on macOS.
+- The preview keeps its own theme (shots/03: dark editor, white preview).
+- 800 × 600 dark: shots/42.
+
+#### Hover, press and motion
+
+- No hover styles on tabs, sidebar rows, popup rows or menu rows (none in all.css).
+- GitHub preview theme: links underline on hover and press.
+- Windows only: window buttons get a `--highlight` background on hover; the close button turns `#DD3333` with white glyph.
+- Mouse cursors: text I-beam in the editor; pointer over links (with the modifier, see behaviour spec) and the word count; default over sidebar, popups and tabs; zoom-in / zoom-out over images.
+- Motion: caret blink 500ms; scrollbar fade-out 0.3s after 750ms idle; split-preview scroll sync scrolls smoothly unless the jump is over 5000px (behaviour spec "Preview modes"). No other CSS transitions or animations exist in the app stylesheets.
+
+### 7. Unknowns
+
+- Find-in-folder result rows and Backups rows were never on screen with content; their look comes from CSS only.
+- Dark-mode find highlight colours are converted from the CSS, not measured.
+- The `file` (unknown type) and `folder open` icons were only read from their drawing data, not seen in a screenshot; descriptions are approximate.
+- Image zoom: no CSS transition was found, so it likely jumps rather than animates (the behaviour spec says "animates"; not checked on screen).
+- Notification bar, About / License / Purchase overlays, right-click menu and the image zoom were not captured.
+- `system-ui` and `-apple-system` resolve to whatever macOS ships; exact rendering (and therefore the 562px column) depends on that font's "a" width.
+- The dark preview theme's code block font (`Fira Mono`) and the declared Merriweather font are not in the package; what the original authors saw may differ.
+- Windows and Linux looks (16px rounded scrollbars, window buttons, 1px window border) were not captured.
+- Exact traffic-light position is native macOS (`hiddenInset`) and was not measured.
+- Preview and popup scrollbars are macOS native overlay scrollbars; their look was not measured.
