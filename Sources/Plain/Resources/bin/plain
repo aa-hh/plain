@@ -1,0 +1,3 @@
+#!/bin/sh
+# Opens files in Plain: plain notes.md
+exec open -a Plain "$@"
