@@ -1,0 +1,428 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-10-22T00:40:00.694049+00:00",
+  "title": "Design System: Plain",
+  "extensions": {
+    "colorMeta": {
+      "material": {
+        "role": "neutral",
+        "displayName": "Material",
+        "canonical": "#FAFAFA",
+        "tonalRamp": [
+          "oklch(15% 0.000 90)",
+          "oklch(26% 0.000 90)",
+          "oklch(38% 0.000 90)",
+          "oklch(49% 0.000 90)",
+          "oklch(61% 0.000 90)",
+          "oklch(72% 0.000 90)",
+          "oklch(84% 0.000 90)",
+          "oklch(95% 0.000 90)"
+        ]
+      },
+      "material-secondary": {
+        "role": "neutral",
+        "displayName": "Material secondary",
+        "canonical": "#F0F0F0",
+        "tonalRamp": [
+          "oklch(15% 0.000 90)",
+          "oklch(26% 0.000 90)",
+          "oklch(38% 0.000 90)",
+          "oklch(49% 0.000 90)",
+          "oklch(61% 0.000 90)",
+          "oklch(72% 0.000 90)",
+          "oklch(84% 0.000 90)",
+          "oklch(95% 0.000 90)"
+        ]
+      },
+      "material-transparent": {
+        "role": "neutral",
+        "displayName": "Material transparent"
+      },
+      "material-line": {
+        "role": "neutral",
+        "displayName": "Material line"
+      },
+      "material-thumb": {
+        "role": "neutral",
+        "displayName": "Material thumb"
+      },
+      "window-background": {
+        "role": "neutral",
+        "displayName": "Window background",
+        "canonical": "#F9F9F9",
+        "tonalRamp": [
+          "oklch(15% 0.000 90)",
+          "oklch(26% 0.000 90)",
+          "oklch(38% 0.000 90)",
+          "oklch(49% 0.000 90)",
+          "oklch(61% 0.000 90)",
+          "oklch(72% 0.000 90)",
+          "oklch(84% 0.000 90)",
+          "oklch(95% 0.000 90)"
+        ]
+      },
+      "color": {
+        "role": "neutral",
+        "displayName": "Text",
+        "canonical": "#4C4C4C",
+        "tonalRamp": [
+          "oklch(15% 0.000 90)",
+          "oklch(26% 0.000 90)",
+          "oklch(38% 0.000 90)",
+          "oklch(49% 0.000 90)",
+          "oklch(61% 0.000 90)",
+          "oklch(72% 0.000 90)",
+          "oklch(84% 0.000 90)",
+          "oklch(95% 0.000 90)"
+        ]
+      },
+      "color-secondary": {
+        "role": "neutral",
+        "displayName": "Secondary text",
+        "canonical": "#7F7F7F",
+        "tonalRamp": [
+          "oklch(15% 0.000 90)",
+          "oklch(26% 0.000 90)",
+          "oklch(38% 0.000 90)",
+          "oklch(49% 0.000 90)",
+          "oklch(61% 0.000 90)",
+          "oklch(72% 0.000 90)",
+          "oklch(84% 0.000 90)",
+          "oklch(95% 0.000 90)"
+        ]
+      },
+      "color-tertiary": {
+        "role": "neutral",
+        "displayName": "Tertiary text",
+        "canonical": "#B3B3B3",
+        "tonalRamp": [
+          "oklch(15% 0.000 90)",
+          "oklch(26% 0.000 90)",
+          "oklch(38% 0.000 90)",
+          "oklch(49% 0.000 90)",
+          "oklch(61% 0.000 90)",
+          "oklch(72% 0.000 90)",
+          "oklch(84% 0.000 90)",
+          "oklch(95% 0.000 90)"
+        ]
+      },
+      "color-blue": {
+        "role": "primary",
+        "displayName": "Blue",
+        "canonical": "#8599AE",
+        "tonalRamp": [
+          "oklch(15% 0.039 250)",
+          "oklch(26% 0.039 250)",
+          "oklch(38% 0.039 250)",
+          "oklch(49% 0.039 250)",
+          "oklch(61% 0.039 250)",
+          "oklch(72% 0.039 250)",
+          "oklch(84% 0.039 250)",
+          "oklch(95% 0.039 250)"
+        ]
+      },
+      "color-red": {
+        "role": "secondary",
+        "displayName": "Red",
+        "canonical": "#D98C8C",
+        "tonalRamp": [
+          "oklch(15% 0.094 20)",
+          "oklch(26% 0.094 20)",
+          "oklch(38% 0.094 20)",
+          "oklch(49% 0.094 20)",
+          "oklch(61% 0.094 20)",
+          "oklch(72% 0.094 20)",
+          "oklch(84% 0.094 20)",
+          "oklch(95% 0.094 20)"
+        ]
+      },
+      "color-gold": {
+        "role": "tertiary",
+        "displayName": "Gold",
+        "canonical": "#C18B8B",
+        "tonalRamp": [
+          "oklch(15% 0.066 19)",
+          "oklch(26% 0.066 19)",
+          "oklch(38% 0.066 19)",
+          "oklch(49% 0.066 19)",
+          "oklch(61% 0.066 19)",
+          "oklch(72% 0.066 19)",
+          "oklch(84% 0.066 19)",
+          "oklch(95% 0.066 19)"
+        ]
+      },
+      "selection-blue": {
+        "role": "neutral",
+        "displayName": "Selection blue"
+      },
+      "selection-neutral": {
+        "role": "neutral",
+        "displayName": "Selection neutral"
+      },
+      "selection-yellow": {
+        "role": "neutral",
+        "displayName": "Selection yellow",
+        "canonical": "#FEEBB5",
+        "tonalRamp": [
+          "oklch(15% 0.072 91)",
+          "oklch(26% 0.072 91)",
+          "oklch(38% 0.072 91)",
+          "oklch(49% 0.072 91)",
+          "oklch(61% 0.072 91)",
+          "oklch(72% 0.072 91)",
+          "oklch(84% 0.072 91)",
+          "oklch(95% 0.072 91)"
+        ]
+      },
+      "selection-orange": {
+        "role": "neutral",
+        "displayName": "Selection orange",
+        "canonical": "#FEC7B5",
+        "tonalRamp": [
+          "oklch(15% 0.068 39)",
+          "oklch(26% 0.068 39)",
+          "oklch(38% 0.068 39)",
+          "oklch(49% 0.068 39)",
+          "oklch(61% 0.068 39)",
+          "oklch(72% 0.068 39)",
+          "oklch(84% 0.068 39)",
+          "oklch(95% 0.068 39)"
+        ]
+      },
+      "highlight": {
+        "role": "neutral",
+        "displayName": "Highlight"
+      },
+      "highlight-info": {
+        "role": "neutral",
+        "displayName": "Highlight info"
+      },
+      "highlight-error": {
+        "role": "neutral",
+        "displayName": "Highlight error"
+      },
+      "dark-material": {
+        "role": "neutral",
+        "displayName": "Dark material",
+        "canonical": "#282828",
+        "tonalRamp": [
+          "oklch(15% 0.000 90)",
+          "oklch(26% 0.000 90)",
+          "oklch(38% 0.000 90)",
+          "oklch(49% 0.000 90)",
+          "oklch(61% 0.000 90)",
+          "oklch(72% 0.000 90)",
+          "oklch(84% 0.000 90)",
+          "oklch(95% 0.000 90)"
+        ]
+      },
+      "dark-material-secondary": {
+        "role": "neutral",
+        "displayName": "Dark material secondary",
+        "canonical": "#232323",
+        "tonalRamp": [
+          "oklch(15% 0.000 90)",
+          "oklch(26% 0.000 90)",
+          "oklch(38% 0.000 90)",
+          "oklch(49% 0.000 90)",
+          "oklch(61% 0.000 90)",
+          "oklch(72% 0.000 90)",
+          "oklch(84% 0.000 90)",
+          "oklch(95% 0.000 90)"
+        ]
+      },
+      "dark-material-line": {
+        "role": "neutral",
+        "displayName": "Dark material line",
+        "canonical": "#4D4D4D",
+        "tonalRamp": [
+          "oklch(15% 0.000 90)",
+          "oklch(26% 0.000 90)",
+          "oklch(38% 0.000 90)",
+          "oklch(49% 0.000 90)",
+          "oklch(61% 0.000 90)",
+          "oklch(72% 0.000 90)",
+          "oklch(84% 0.000 90)",
+          "oklch(95% 0.000 90)"
+        ]
+      },
+      "dark-window-background": {
+        "role": "neutral",
+        "displayName": "Dark window background",
+        "canonical": "#1D1D1D",
+        "tonalRamp": [
+          "oklch(15% 0.000 90)",
+          "oklch(26% 0.000 90)",
+          "oklch(38% 0.000 90)",
+          "oklch(49% 0.000 90)",
+          "oklch(61% 0.000 90)",
+          "oklch(72% 0.000 90)",
+          "oklch(84% 0.000 90)",
+          "oklch(95% 0.000 90)"
+        ]
+      },
+      "dark-color": {
+        "role": "neutral",
+        "displayName": "Dark color",
+        "canonical": "#BFBFBF",
+        "tonalRamp": [
+          "oklch(15% 0.000 90)",
+          "oklch(26% 0.000 90)",
+          "oklch(38% 0.000 90)",
+          "oklch(49% 0.000 90)",
+          "oklch(61% 0.000 90)",
+          "oklch(72% 0.000 90)",
+          "oklch(84% 0.000 90)",
+          "oklch(95% 0.000 90)"
+        ]
+      },
+      "dark-color-secondary": {
+        "role": "neutral",
+        "displayName": "Dark color secondary",
+        "canonical": "#999999",
+        "tonalRamp": [
+          "oklch(15% 0.000 90)",
+          "oklch(26% 0.000 90)",
+          "oklch(38% 0.000 90)",
+          "oklch(49% 0.000 90)",
+          "oklch(61% 0.000 90)",
+          "oklch(72% 0.000 90)",
+          "oklch(84% 0.000 90)",
+          "oklch(95% 0.000 90)"
+        ]
+      },
+      "dark-color-tertiary": {
+        "role": "neutral",
+        "displayName": "Dark color tertiary",
+        "canonical": "#666666",
+        "tonalRamp": [
+          "oklch(15% 0.000 90)",
+          "oklch(26% 0.000 90)",
+          "oklch(38% 0.000 90)",
+          "oklch(49% 0.000 90)",
+          "oklch(61% 0.000 90)",
+          "oklch(72% 0.000 90)",
+          "oklch(84% 0.000 90)",
+          "oklch(95% 0.000 90)"
+        ]
+      },
+      "dark-color-blue": {
+        "role": "primary",
+        "displayName": "Dark color blue",
+        "canonical": "#8799AC",
+        "tonalRamp": [
+          "oklch(15% 0.035 250)",
+          "oklch(26% 0.035 250)",
+          "oklch(38% 0.035 250)",
+          "oklch(49% 0.035 250)",
+          "oklch(61% 0.035 250)",
+          "oklch(72% 0.035 250)",
+          "oklch(84% 0.035 250)",
+          "oklch(95% 0.035 250)"
+        ]
+      },
+      "dark-color-red": {
+        "role": "secondary",
+        "displayName": "Dark color red"
+      },
+      "dark-color-gold": {
+        "role": "tertiary",
+        "displayName": "Dark color gold",
+        "canonical": "#A8998A",
+        "tonalRamp": [
+          "oklch(15% 0.028 67)",
+          "oklch(26% 0.028 67)",
+          "oklch(38% 0.028 67)",
+          "oklch(49% 0.028 67)",
+          "oklch(61% 0.028 67)",
+          "oklch(72% 0.028 67)",
+          "oklch(84% 0.028 67)",
+          "oklch(95% 0.028 67)"
+        ]
+      }
+    },
+    "shadows": [
+      {
+        "name": "card-rings",
+        "value": "0 0 0 1px rgba(0,0,0,0.1), 0 0 0 8px rgba(0,0,0,0.025)",
+        "purpose": "Popup cards: a 1 pt ring plus a 7 pt near-transparent ring, no blur."
+      }
+    ]
+  },
+  "components": [
+    {
+      "name": "Popup Card",
+      "kind": "card",
+      "refersTo": "popup-card",
+      "description": "Every popup: filter row, then up to 16 rows.",
+      "html": "<div class=\"ds-popup\"><div class=\"ds-popup-filter\">ma</div><div class=\"ds-popup-row ds-sel\">Mode <u>Ma</u>rkdown</div><div class=\"ds-popup-row\">Toggle <u>Ma</u>th</div><div class=\"ds-popup-row\">For<u>ma</u>t Table</div></div>",
+      "css": "font-family:-apple-system,system-ui,sans-serif;.ds-popup{font-family:-apple-system,system-ui,sans-serif;width:360px;background:#FAFAFA;border-radius:6px;padding-bottom:12px;box-shadow:0 0 0 1px rgba(0,0,0,0.1),0 0 0 8px rgba(0,0,0,0.025)}.ds-popup-filter{font-size:26px;font-weight:300;height:72px;line-height:72px;padding:0 20px;color:#4C4C4C}.ds-popup-row{font-size:13px;height:24px;line-height:24px;padding:0 20px;color:#7F7F7F;cursor:default}.ds-popup-row:hover{background:rgba(204,204,204,0.25)}.ds-popup-row.ds-sel{background:rgba(71,153,235,0.25)}"
+    },
+    {
+      "name": "Popup Filter",
+      "kind": "input",
+      "refersTo": "popup-filter",
+      "description": "The large light query field at the top of a popup.",
+      "html": "<input class=\"ds-filter\" placeholder=\"Go to File\">",
+      "css": ".ds-filter{font-family:-apple-system,system-ui,sans-serif;width:360px;font-size:26px;font-weight:300;height:72px;padding:0 20px;border:none;background:#FAFAFA;color:#4C4C4C;outline:none;border-radius:6px}.ds-filter::placeholder{color:#B3B3B3}.ds-filter:focus-visible{box-shadow:0 0 0 1px rgba(0,0,0,0.1)}"
+    },
+    {
+      "name": "Tab Strip",
+      "kind": "nav",
+      "refersTo": "tab",
+      "description": "Text-only tabs in the 48 pt strip; current tab one grey darker.",
+      "html": "<div class=\"ds-tabs\"><span class=\"ds-tab ds-cur\">Welcome<span class=\"ds-ext\">.md</span></span><span class=\"ds-tab\">Notes<span class=\"ds-ext\">.md</span> •</span><span class=\"ds-tab\">⇾ todo<span class=\"ds-ext\">.md</span></span></div>",
+      "css": ".ds-tabs{font-family:-apple-system,system-ui,sans-serif;display:flex;justify-content:center;height:48px;padding:9px 80px 0;background:#FAFAFA}.ds-tab{font-size:13px;height:30px;line-height:24px;padding:3px 10px;max-width:200px;color:#B3B3B3;cursor:default;white-space:nowrap}.ds-tab:hover{color:#7F7F7F}.ds-tab.ds-cur{color:#7F7F7F}.ds-ext{color:#B3B3B3}"
+    },
+    {
+      "name": "Notification Bar",
+      "kind": "custom",
+      "refersTo": "notification-bar",
+      "description": "Centred message with a 1 pt top rule; bracketed text buttons.",
+      "html": "<div class=\"ds-note\">Saved a backup of Notes.md <button class=\"ds-bracket\">[ Show ]</button> <button class=\"ds-bracket\">[ × ]</button></div>",
+      "css": ".ds-note{font-family:-apple-system,system-ui,sans-serif;font-size:13px;color:#8599AE;background:#FAFAFA;border-top:1px solid #8599AE;padding:13px;text-align:center}.ds-bracket{font:inherit;color:inherit;background:none;border:none;padding:0 0 0 13px;cursor:pointer}.ds-bracket:hover{color:#4C4C4C}.ds-bracket:focus-visible{outline:1px solid rgba(0,0,0,0.1)}"
+    },
+    {
+      "name": "Error Notification",
+      "kind": "custom",
+      "refersTo": "notification-bar-error",
+      "description": "The same bar in red for errors.",
+      "html": "<div class=\"ds-note ds-err\">Could not save Notes.md <button class=\"ds-bracket\">[ × ]</button></div>",
+      "css": ".ds-note{font-family:-apple-system,system-ui,sans-serif;font-size:13px;background:#FAFAFA;padding:13px;text-align:center}.ds-err{color:#D98C8C;border-top:1px solid #D98C8C}.ds-bracket{font:inherit;color:inherit;background:none;border:none;padding:0 0 0 13px;cursor:pointer}.ds-bracket:hover{color:#4C4C4C}"
+    },
+    {
+      "name": "Files Sidebar Row",
+      "kind": "custom",
+      "refersTo": "popup-row",
+      "description": "13 pt rows on 24 pt, 16 pt indent per level, Git marks in tertiary text.",
+      "html": "<div class=\"ds-side\"><div class=\"ds-srow\">docs</div><div class=\"ds-srow ds-l1\">DESIGN.md <span class=\"ds-mark\">~</span></div><div class=\"ds-srow ds-l1\">notes.md <span class=\"ds-mark\">+</span></div></div>",
+      "css": ".ds-side{font-family:-apple-system,system-ui,sans-serif;width:200px;background:#FAFAFA;padding:12px 0}.ds-srow{font-size:13px;height:24px;line-height:24px;padding:0 20px;color:#7F7F7F;cursor:default}.ds-srow:hover{background:rgba(0,0,0,0.04)}.ds-l1{padding-left:36px}.ds-mark{color:#B3B3B3;float:right}"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Quiet Page",
+    "overview": "**Creative North Star: \"The Quiet Page\"**\n\nPlain's chrome fades back so the writing is the one thing on screen. Every surface is a near-white or near-black grey, text sits in three steps of grey, and the tab strip, sidebars and popups use the same small 13 pt type on a 24 pt line. Nothing is bold, nothing is saturated, and the only icons are small 16 pt pixel-drawn glyphs in the Files sidebar, in tertiary grey. Tabs are plain text, sidebar Git marks are `+ ~ D R`, and notification buttons are bracketed text such as `[ × ]`.\n\nColour appears only when it means something. Faded blue marks links and information, faded red marks errors and maths commands, and a muted gold marks inline code. Selection, find matches and spelling use soft tints behind the text, never coloured text. The editor itself is a single column, 72 letter \"a\" widths wide, with 80 pt margins and generous space above and below.\n\nLight and dark modes are the same system with the greys inverted. Dark mode keeps each accent's hue and drops its brightness.",
+    "keyCharacteristics": [
+      "Grey surfaces and grey text in three steps; no pure black or pure white in the chrome.",
+      "One small UI type size (13 pt on 24 pt) everywhere outside the editor and the popup filter.",
+      "Colour carries meaning only: links, information, errors, code.",
+      "Flat surfaces; popups lift with thin outline rings, not blurred shadows.",
+      "Text-first controls; no icon set beyond the sidebar's pixel glyphs."
+    ],
+    "rules": [],
+    "dos": [
+      "**Do** take every colour, size and spacing from `Tokens`; add a token there before using a new value.",
+      "**Do** keep chrome text at 13 pt on the 24 pt line.",
+      "**Do** use `color-blue`, `color-red` or `color-gold` only for their meanings above.",
+      "**Do** show state with text colour steps (secondary versus tertiary) or tints behind text.",
+      "**Do** give every new colour a dark-mode value in `Tokens.dark`."
+    ],
+    "donts": [
+      "**Don't** add bold, saturated colour or new icons to the chrome.",
+      "**Don't** use blurred drop shadows; floating elements use the outline rings.",
+      "**Don't** add button chrome to text actions; bracketed text is the pattern.",
+      "**Don't** colour text to show selection or matches; tint behind it.",
+      "**Don't** copy Caret's CSS, themes, icons or fonts; these values are Plain's own, measured from its behaviour spec."
+    ]
+  }
+}

@@ -23,7 +23,7 @@ Fast and quiet first. Plain started as a native rebuild of Caret's behaviour (`d
 ## Operating Context
 
 - Single files and whole folders, with a Files sidebar, an outline, find in folder and Git change marks.
-- Tabs, and a live preview beside the editor.
+- Tabs, a live preview beside or instead of the editor, dark mode and typewriter mode.
 - A `plain` command opens files from the terminal.
 - Settings live in two Markdown files opened as tabs; user data lives in `~/Library/Application Support/Plain/`.
 
