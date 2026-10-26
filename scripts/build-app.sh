@@ -5,6 +5,10 @@ set -euo pipefail
 root="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$root"
 
+# The release compile runs here (the .app needs its products), under a capacity
+# permit from the pool every session shares; see scripts/lib/runner.sh.
+. "$root/scripts/lib/runner.sh"
+capacity_acquire build-app
 swift build -c release
 bin="$(swift build -c release --show-bin-path)"
 
@@ -47,6 +51,7 @@ if [[ -f "$licences" ]]; then
   } > "$resources/Licences.md"
 fi
 
+capacity_release
 codesign --force --sign - --deep "$app"
 
 echo "build/Plain.app"

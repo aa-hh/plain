@@ -216,8 +216,8 @@ extension EditorTextView {
     private func copyHoveredCode() {
         guard let block = blockHandle.hovered, let snapshot else { return }
         let string = VisibleText.plain(text: nsText, snapshot: snapshot, range: block.fullRange, columnWidth: styler.pageColumnWidth)
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(string, forType: .string)
+        pasteboard.clearContents()
+        pasteboard.setString(string, forType: .string)
     }
 
     // MARK: Plus
@@ -349,8 +349,8 @@ extension EditorTextView {
     /// Puts the raw Markdown lines of the hovered block (with nested items) on the pasteboard.
     func blockMenuCopyMarkdown() {
         guard let block = handleBlock() else { return }
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(nsText.substring(with: block.fullRange), forType: .string)
+        pasteboard.clearContents()
+        pasteboard.setString(nsText.substring(with: block.fullRange), forType: .string)
         closeBlockHandle()
     }
 
