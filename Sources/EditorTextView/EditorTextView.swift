@@ -127,6 +127,8 @@ public final class EditorTextView: NSTextView, @preconcurrency NSTextLayoutManag
         }
     }
     private var recentEmojiRequested = false
+    /// Where cut, copy, paste and Link read and write. Tests swap in a private named pasteboard so other processes cannot change it mid-test.
+    var pasteboard = NSPasteboard.general
     let styler: MarkdownStyler
 
     /// The latest snapshot whose version equals the text's version; nil while a parse is pending.

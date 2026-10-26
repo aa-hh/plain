@@ -142,7 +142,7 @@ extension EditorTextView {
         if Self.isURL(selected) {
             url = selected
             text = ""
-        } else if let clip = NSPasteboard.general.string(forType: .string)?.trimmingCharacters(in: .whitespacesAndNewlines), Self.isURL(clip) {
+        } else if let clip = pasteboard.string(forType: .string)?.trimmingCharacters(in: .whitespacesAndNewlines), Self.isURL(clip) {
             url = clip
         }
         let isImage = image || Self.imageExtensions.contains((url as NSString).pathExtension.lowercased())
@@ -319,7 +319,7 @@ extension EditorTextView {
         guard isPage, let snapshot, !ranges.isEmpty else { return false }
         let plain = ranges.map { VisibleText.plain(text: nsText, snapshot: snapshot, range: $0, columnWidth: styler.pageColumnWidth) }
         let markdown = ranges.map { balancedMarkdown($0, snapshot: snapshot) }
-        let board = NSPasteboard.general
+        let board = pasteboard
         board.clearContents()
         board.setString(plain.joined(separator: "\n"), forType: .string)
         board.setString(markdown.joined(separator: "\n"), forType: Self.markdownPasteboardType)
@@ -366,12 +366,9 @@ extension EditorTextView {
     public override func copy(_ sender: Any?) {
         if pageCopy(pageCopyRanges) { return }
         let restore = selectedRanges
-        if wholeLineIfEmpty() {
-            super.copy(sender)
-            selectedRanges = restore
-        } else {
-            super.copy(sender)
-        }
+        let wholeLine = wholeLineIfEmpty()
+        _ = writeSelection(to: pasteboard, types: writablePasteboardTypes)
+        if wholeLine { selectedRanges = restore }
     }
 
     public override func cut(_ sender: Any?) {
@@ -381,7 +378,7 @@ extension EditorTextView {
             return
         }
         _ = wholeLineIfEmpty()
-        super.cut(sender)
+        if writeSelection(to: pasteboard, types: writablePasteboardTypes) { delete(sender) }
     }
 
     private var copySource: String {
@@ -392,9 +389,9 @@ extension EditorTextView {
     func copyAsRichText() {
         let markdown = copySource
         let render = actions.htmlRenderer
+        let board = pasteboard
         Task {
             let html = await render(markdown)
-            let board = NSPasteboard.general
             board.clearContents()
             board.setString(html, forType: .html)
             board.setString(markdown, forType: .string)
@@ -404,20 +401,21 @@ extension EditorTextView {
     func copyAsHTML() {
         let markdown = copySource
         let render = actions.htmlRenderer
+        let board = pasteboard
         Task {
             let html = await render(markdown)
-            NSPasteboard.general.clearContents()
-            NSPasteboard.general.setString(html, forType: .string)
+            board.clearContents()
+            board.setString(html, forType: .string)
         }
     }
 
     // MARK: Paste (spec 133, 168, 170, 171, 274)
 
     public override func paste(_ sender: Any?) {
-        let board = NSPasteboard.general
+        let board = pasteboard
         if let markdown = board.string(forType: Self.markdownPasteboardType) { return paste(text: markdown) }
         if board.string(forType: .string) == nil, pasteImage(from: board) { return }
-        guard let string = board.string(forType: .string) else { return super.paste(sender) }
+        guard let string = board.string(forType: .string) else { readSelection(from: board); return }
         paste(text: string)
     }
 
@@ -478,7 +476,7 @@ extension EditorTextView {
     }
 
     func pasteFormatted() {
-        let board = NSPasteboard.general
+        let board = pasteboard
         if let html = board.string(forType: .html) {
             paste(text: actions.htmlToMarkdown(html))
         } else {
