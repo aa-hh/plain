@@ -1,0 +1,67 @@
+name: Tests
+
+# The full suite on GitHub-hosted Macs for every pull request and every push
+# to main, split into the shards in scripts/lib/suite-shards.sh. Ported from
+# AirPlay Controller's tests workflow.
+#
+# Caches: PR and push runs restore the newest .build for these pins and save
+# their own, so a second push rebuilds only its own diff.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  # The runner has no mule and no shared pass cache.
+  AUDIOUT_BUILD_LOCAL: "1"
+  AUDIOUT_TEST_PREFER: local
+  AUDIOUT_TEST_NO_CACHE: "1"
+
+jobs:
+  suite:
+    runs-on: macos-26
+    timeout-minutes: 45
+    name: suite (shard ${{ matrix.shard }})
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Restore SwiftPM build cache
+        uses: actions/cache/restore@v4
+        with:
+          path: .build
+          key: ${{ runner.os }}-${{ runner.arch }}-spm-${{ hashFiles('Package.resolved') }}-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-${{ runner.arch }}-spm-${{ hashFiles('Package.resolved') }}-
+            ${{ runner.os }}-${{ runner.arch }}-spm-
+
+      - name: Suite
+        run: bash scripts/run-tests.sh --shard ${{ matrix.shard }}
+
+      # One saver, so the shards do not race on one key.
+      - name: Save SwiftPM build cache
+        if: ${{ !cancelled() && strategy.job-index == 0 }}
+        uses: actions/cache/save@v4
+        with:
+          path: .build
+          key: ${{ runner.os }}-${{ runner.arch }}-spm-${{ hashFiles('Package.resolved') }}-${{ github.sha }}
+
+  # The one check to require in branch protection.
+  tests:
+    runs-on: ubuntu-latest
+    needs: [suite]
+    if: always()
+    steps:
+      - run: '[ "${{ needs.suite.result }}" = success ]'
