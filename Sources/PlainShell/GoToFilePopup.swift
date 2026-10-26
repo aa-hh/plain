@@ -71,7 +71,7 @@ public struct GoToFilePopup: View {
             let ext = url.pathExtension.isEmpty ? "" : "." + url.pathExtension
             let indexes = rows[index].match.indexes
             HStack(spacing: 0) {
-                FileIcon(kind: OpenableFiles.fileKind(for: url))
+                FileIcon(kind: OpenableFiles.fileKind(for: url)).padding(.trailing, 6)
                 Text(underlined(name, indexes: indexes))
                 Text(underlined(ext, indexes: indexes, offset: name.count)).foregroundStyle(Color.tertiaryText)
                 Text(" in \(GoToFileList.displayPath(of: url.deletingLastPathComponent()))")

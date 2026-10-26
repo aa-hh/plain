@@ -81,7 +81,7 @@ public struct FindInFolderPopup: View {
             case .file(let group, let expanded):
                 HStack(spacing: 7) {
                     Text(FindInFolderList.relativePath(group.url, in: folder)).truncationMode(.head)
-                    Text("›").rotationEffect(.degrees(expanded ? 90 : 0))
+                    LucideIcon(name: expanded ? "chevron-down" : "chevron-right")
                 }
                 .foregroundStyle(Color.tertiaryText)
             case .hit(let hit):

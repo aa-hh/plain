@@ -26,7 +26,7 @@ let package = Package(
         ]),
         .target(name: "PreviewRenderer", dependencies: ["MarkdownDocument", "PlainCore", "PlainVendor"]),
         .target(name: "PlainShell", dependencies: [
-            "FolderIndex", "GitStatus", "MarkdownDocument", "PlainDocument", "PlainCore",
+            "FolderIndex", "GitStatus", "MarkdownDocument", "PlainDocument", "PlainCore", "PlainVendor",
         ]),
         .target(name: "PlainAppKit", dependencies: [
             "PlainVendor", "PlainCore", "MarkdownDocument", "PlainDocument", "FolderIndex",

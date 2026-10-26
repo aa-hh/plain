@@ -77,8 +77,8 @@ public struct TabBar: View {
         HStack(spacing: 0) {
             // The arrows sit at the strip's left; the same width kept on the right keeps the tabs centred.
             if let history {
-                arrow("←", name: "Back", shortcut: "⌘[", entries: history.back, go: actions.goBack)
-                arrow("→", name: "Forward", shortcut: "⌘]", entries: history.forward, go: actions.goForward)
+                arrow("arrow-left", name: "Back", shortcut: "⌘[", entries: history.back, go: actions.goBack)
+                arrow("arrow-right", name: "Forward", shortcut: "⌘]", entries: history.forward, go: actions.goForward)
                     .padding(.trailing, 10)
             }
             HStack(spacing: 0) {
@@ -144,13 +144,10 @@ public struct TabBar: View {
     }
 
     /// A back or forward arrow: drawn only when its list has entries, but its 24 pt always kept so tabs never shift.
-    private func arrow(_ glyph: String, name: String, shortcut: String, entries: [String], go: @escaping (Int) -> Void) -> some View {
+    private func arrow(_ icon: String, name: String, shortcut: String, entries: [String], go: @escaping (Int) -> Void) -> some View {
         let next = entries.last.map { URL(fileURLWithPath: $0).lastPathComponent }
         let menu = Array(entries.reversed().prefix(Self.arrowMenuLimit))
-        return Text(glyph)
-            .font(uiFont)
-            .foregroundStyle(Color.tertiaryText)
-            .padding(.vertical, 3)
+        return LucideIcon(name: icon)
             .frame(width: 24, height: 30)
             .opacity(next == nil ? 0 : 1)
             .contentShape(Rectangle())

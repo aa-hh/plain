@@ -66,7 +66,7 @@ public struct OutlineSidebar: View {
                         ForEach(rows, id: \.index) { row in
                             let heading = headings[row.index]
                             HStack(spacing: 0) {
-                                HeadingIcon(level: heading.level)
+                                HeadingIcon(level: heading.level).padding(.trailing, 6)
                                 Text(heading.text).truncationMode(.tail)
                                 Spacer(minLength: 4)
                                 if changedHeadings.contains(heading.blockID) { GitMarkLabel(mark: .changed) }

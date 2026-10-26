@@ -14,10 +14,12 @@ public enum VendorFiles {
     public static let robotoMonoRegular = root.appendingPathComponent("fonts/RobotoMono-Regular.ttf")
     public static let robotoMonoBold = root.appendingPathComponent("fonts/RobotoMono-Bold.ttf")
     public static let licencesFolder = root
+    /// Lucide's SVG icons, by icon name (for example "folder-open").
+    public static func lucideIcon(_ name: String) -> URL { root.appendingPathComponent("lucide/\(name).svg") }
 
     /// Every URL above, for checks that the vendor files exist.
     public static let all: [URL] = [
         katexJS, katexCSS, katexFontsFolder, prismFolder, prismComponentsJSON,
-        emojiJSON, robotoMonoRegular, robotoMonoBold, licencesFolder,
+        emojiJSON, robotoMonoRegular, robotoMonoBold, licencesFolder, lucideIcon("folder"),
     ]
 }

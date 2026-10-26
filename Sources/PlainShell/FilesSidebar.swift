@@ -2,22 +2,30 @@ import AppKit
 import FolderIndex
 import GitStatus
 import PlainCore
+import PlainVendor
 import SwiftUI
 
-/// A 9 × 7 pixel drawing at the bottom-left of a 16 × 16 box, filled in the tertiary colour.
-struct PixelIcon: View {
-    let rows: [String]
+/// A Lucide icon from the vendor files, 16 × 16 in the tertiary colour unless told otherwise.
+struct LucideIcon: View {
+    let name: String
+    var size: CGFloat = 16
+    var colour: Color = .tertiaryText
+
+    @MainActor static var cache: [String: NSImage] = [:]
+
+    static func image(_ name: String) -> NSImage {
+        if let image = cache[name] { return image }
+        let image = NSImage(contentsOf: VendorFiles.lucideIcon(name)) ?? NSImage()
+        image.isTemplate = true
+        cache[name] = image
+        return image
+    }
 
     var body: some View {
-        Canvas { context, size in
-            let top = size.height - CGFloat(rows.count)
-            for (y, row) in rows.enumerated() {
-                for (x, pixel) in row.enumerated() where pixel == "1" {
-                    context.fill(Path(CGRect(x: CGFloat(x), y: top + CGFloat(y), width: 1, height: 1)), with: .color(.tertiaryText))
-                }
-            }
-        }
-        .frame(width: 16, height: 16)
+        Image(nsImage: Self.image(name))
+            .resizable()
+            .foregroundStyle(colour)
+            .frame(width: size, height: size)
     }
 }
 
@@ -26,42 +34,21 @@ struct FileIcon: View {
     let kind: FileKind
     var expanded = false
 
-    static let folderClosed = ["111000000", "100111111", "100000001", "101010101", "101010101", "100000001", "111111111"]
-    static let folderOpen = ["111000000", "111111111", "111111111", "111111111", "111111111", "111111111", "111111111"]
-    static let text = ["111111111", "000000000", "111111000", "000000000", "111111111", "000000000", "111110000"]
-    static let image = ["101010101", "010101010", "101010101", "010101010", "101010101", "010101010", "101010101"]
-    static let other = ["101010101", "000000000", "101010101", "000000000", "101010101", "000000000", "101010101"]
-
     var body: some View {
         switch kind {
-        case .folder: PixelIcon(rows: expanded ? Self.folderOpen : Self.folderClosed)
-        case .text: PixelIcon(rows: Self.text)
-        case .image: PixelIcon(rows: Self.image)
-        case .other: PixelIcon(rows: Self.other)
+        case .folder: LucideIcon(name: expanded ? "folder-open" : "folder")
+        case .text: LucideIcon(name: "file-text")
+        case .image: LucideIcon(name: "file-image")
+        case .other: LucideIcon(name: "file")
         }
     }
 }
 
-/// A 9 × 7 box with `H1`…`H6` drawn in 3 × 5 pixel letters.
+/// Lucide's heading-1 to heading-6.
 struct HeadingIcon: View {
     let level: Int
 
-    static let glyphs: [Character: [String]] = [
-        "H": ["101", "101", "111", "101", "101"],
-        "1": ["010", "110", "010", "010", "111"],
-        "2": ["111", "001", "111", "100", "111"],
-        "3": ["111", "001", "011", "001", "111"],
-        "4": ["101", "101", "111", "001", "001"],
-        "5": ["111", "100", "111", "001", "111"],
-        "6": ["111", "100", "111", "101", "111"],
-    ]
-
-    var body: some View {
-        let h = Self.glyphs["H"]!
-        let digit = Self.glyphs[Character(String(min(max(level, 1), 6)))]!
-        let inner = (0..<5).map { h[$0] + "0" + digit[$0] }
-        PixelIcon(rows: ["111111111"] + inner.map { "1" + $0 + "1" } + ["111111111"])
-    }
+    var body: some View { LucideIcon(name: "heading-\(min(max(level, 1), 6))") }
 }
 
 /// A git mark after a row: `+` added, `~` changed, `D` deleted, `R` renamed.
@@ -244,7 +231,7 @@ public struct FilesSidebar: View {
         let ext = isFolder || node.url.pathExtension.isEmpty ? "" : "." + node.url.pathExtension
         let name = ext.isEmpty ? node.name : String(node.name.dropLast(ext.count))
         return HStack(spacing: 0) {
-            FileIcon(kind: node.kind, expanded: expanded.contains(node.url))
+            FileIcon(kind: node.kind, expanded: expanded.contains(node.url)).padding(.trailing, 6)
             if edit == .rename(node.url) {
                 editField
             } else {
@@ -275,7 +262,7 @@ public struct FilesSidebar: View {
 
     private func editRow(depth: Int, kind: FileKind) -> some View {
         HStack(spacing: 0) {
-            FileIcon(kind: kind)
+            FileIcon(kind: kind).padding(.trailing, 6)
             editField
         }
         .font(uiFont)

@@ -66,7 +66,7 @@ public struct CommandsPopup: View {
             HStack(spacing: 0) {
                 Text(underlined(prefix, indexes: indexes)).foregroundStyle(Color.tertiaryText)
                 Text(underlined(command.title, indexes: indexes, offset: prefix.count))
-                if command.kind != .action && isChecked(command.id) { Text(" ✓") }
+                if command.kind != .action && isChecked(command.id) { LucideIcon(name: "check", size: 14, colour: .secondaryText).padding(.leading, 4) }
                 Spacer(minLength: 10)
                 if let shortcut = command.shortcuts.first {
                     Text(spacedSymbols(shortcut)).foregroundStyle(Color.tertiaryText)
