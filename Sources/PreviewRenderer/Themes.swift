@@ -166,6 +166,9 @@ public struct Themes: Sendable {
           margin: \(theme.codeBlockMargin);
           overflow-x: auto;
         }
+        /* A fenced block's wrapper carries the block margin and the header, so the code sits flush under it. */
+        .code-block { margin: \(theme.codeBlockMargin); }
+        .code-block > pre { margin: 0; }
         pre code {
           font-family: \(theme.codeBlockFont);
           font-size: \(theme.codeBlockSize);
@@ -214,6 +217,9 @@ public struct Themes: Sendable {
             strong, b { font-weight: 500; }
             li + li { margin-top: 4px; }
             ul ul, ul ol, ol ul, ol ol { padding-bottom: 4px; margin-top: 4px; }
+            /* Claude puts the surface, the radius and the border on the wrapper, so the header shares them. */
+            .code-block { background: var(--code-background); border: \(theme.codeBlockBorder); border-radius: \(theme.codeBlockRadius); overflow: hidden; }
+            .code-block > pre { background: none; border: 0; border-radius: 0; padding: 0 14px 14px; }
 
             """
         } else {
@@ -245,12 +251,9 @@ public struct Themes: Sendable {
             css += ".token.\(token) { color: \(colour); }\n"
         }
         if let selection = theme.selection { css += "::selection { background: \(selection); }\n" }
-        // A code block's header (language and copy button) is screen-only.
-        var printRules = ":host { font-size: \(theme.printFontSize); }"
-        if isClaude { printRules += "\n  .code-header { display: none; }" }
         css += """
         @media print {
-          \(printRules)
+          :host { font-size: \(theme.printFontSize); }
         }
 
         """

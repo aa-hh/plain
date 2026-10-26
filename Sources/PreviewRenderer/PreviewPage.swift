@@ -46,11 +46,24 @@ public protocol PreviewPage: AnyObject {
 }
 
 /// Plain's stylesheet under every theme (spec 511): no top margin on the first block or bottom margin on the last,
-/// a page break before `.page-break`, and print rules (48/32 px padding, exact colours, wrapped code lines).
+/// a page break before `.page-break`, the fenced code block's header, and print rules (48/32 px padding, exact
+/// colours, wrapped code lines).
 public let previewBaseCSS = """
 .content > :first-child { margin-top: 0 !important; }
 .content > :last-child { margin-bottom: 0 !important; }
 .content img { max-width: 100%; }
+/* The language label and copy button above a fenced code block. The theme supplies the surface and the block's
+   own spacing; this only lays the header out and keeps it quiet until it is needed. */
+.code-header { display: flex; align-items: center; justify-content: flex-end; gap: 8px; padding: 8px 8px 6px; }
+.code-language { margin-right: auto; font-size: 0.8125em; line-height: 1.2; opacity: 0.6; }
+.code-copy {
+  font: inherit; font-size: 0.8125em; line-height: 1.2; color: inherit;
+  background: none; border: 0; border-radius: 4px; padding: 3px 7px; cursor: pointer;
+  opacity: 0; transition: opacity 120ms ease;
+}
+.code-block:hover .code-copy, .code-copy:focus-visible { opacity: 0.75; }
+.code-copy:hover { opacity: 1; }
+@media (hover: none) { .code-copy { opacity: 0.75; } }
 .page-break { height: 0; margin: 0; break-before: page; page-break-before: always; }
 @media print {
   .content { max-width: none !important; height: auto; padding: 48px 32px !important; }
