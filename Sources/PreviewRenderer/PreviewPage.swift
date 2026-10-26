@@ -244,7 +244,10 @@ public final class WebPreviewPage: NSObject, PreviewPage, WKNavigationDelegate {
         configuration.userContentController.add(handler, name: "task")
         configuration.userContentController.add(handler, name: "link")
         webView.navigationDelegate = self
-        webView.loadHTMLString(previewShell(themeURL: themeURL), baseURL: URL(fileURLWithPath: "/"))
+        // loadHTMLString grants no read access to file URLs, so the theme and KaTeX stylesheets would not load.
+        let file = FileManager.default.temporaryDirectory.appendingPathComponent("plain-preview-\(UUID().uuidString).html")
+        try? previewShell(themeURL: themeURL).write(to: file, atomically: true, encoding: .utf8)
+        webView.loadFileURL(file, allowingReadAccessTo: URL(fileURLWithPath: "/"))
     }
 
     fileprivate func received(_ message: WKScriptMessage) {
