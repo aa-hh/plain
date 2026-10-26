@@ -277,6 +277,13 @@ Not recovered, so not specified here:
   the app's cache and could not be fetched (claude.ai returns 403 to a plain request).
 - Hanging punctuation works through `span[data-hang-next]` with per-character
   `--hq-kern-*` values. The mechanism is visible; the kerning table is not.
+- The raw palette. Claude's colours are CSS custom properties (`--cds-gray-50` to
+  `--cds-gray-900`, `--cds-text-primary`, `--cds-fill-ghost-hover`, `--cds-border-300`)
+  and only the semantic mapping between them was recovered, not the hex values. Every
+  colour in a port is therefore Plain's own choice filling a measured role, not a copied
+  value. The structure that is measured: body text on a page background, muted secondary
+  text at a lower contrast, a half-pixel border at 10 to 30% opacity for table rules, and
+  a ghost fill at 5% for inline code.
 
 ## 6. Porting to Plain
 
