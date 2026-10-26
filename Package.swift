@@ -22,7 +22,7 @@ let package = Package(
         .target(name: "GitStatus", dependencies: ["PlainCore"]),
         .target(name: "Spellcheck", dependencies: ["PlainCore"]),
         .target(name: "EditorTextView", dependencies: [
-            "MarkdownDocument", "PlainDocument", "Spellcheck", "GitStatus", "PlainCore", "PlainVendor",
+            "MarkdownDocument", "PlainDocument", "Spellcheck", "GitStatus", "PlainCore", "PlainVendor", "PlainShell",
         ]),
         .target(name: "PreviewRenderer", dependencies: ["MarkdownDocument", "PlainCore", "PlainVendor"]),
         .target(name: "PlainShell", dependencies: [

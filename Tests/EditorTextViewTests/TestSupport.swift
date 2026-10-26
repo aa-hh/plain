@@ -4,9 +4,10 @@ import PlainDocument
 import XCTest
 @testable import EditorTextView
 
-/// An editor in a scroll view in an off-screen window, with its first snapshot applied.
+/// An editor in a scroll view in an off-screen window, with its first snapshot applied. It shows the Markdown source
+/// unless `configuration` says otherwise; page tests pass `EditorConfiguration()`.
 @MainActor
-func makeEditor(_ text: String = "", url: URL? = nil, configuration: EditorConfiguration = EditorConfiguration()) async -> EditorTextView {
+func makeEditor(_ text: String = "", url: URL? = nil, configuration: EditorConfiguration = EditorConfiguration(showMarkdownSource: true)) async -> EditorTextView {
     let document = Document(text: text, url: url)
     let markdown = MarkdownDocument(text: text)
     let editor = EditorTextView(document: document, markdown: markdown, configuration: configuration)
@@ -28,6 +29,22 @@ func host(_ editor: EditorTextView) {
 }
 
 @MainActor var retainedWindows: [NSWindow] = []
+
+/// A mouse event at the character `offset`, just right of its caret position, in the editor's window.
+@MainActor
+func mouseEvent(_ type: NSEvent.EventType, at offset: Int, in editor: EditorTextView, clickCount: Int = 1,
+                flags: NSEvent.ModifierFlags = []) -> NSEvent {
+    let rect = editor.rect(forCharacterRange: NSRange(location: offset, length: 0))
+    return NSEvent.mouseEvent(with: type, location: windowPoint(x: rect.minX + 0.5, y: rect.midY, in: editor), modifierFlags: flags,
+                              timestamp: 0, windowNumber: editor.window?.windowNumber ?? 0, context: nil, eventNumber: 0,
+                              clickCount: clickCount, pressure: 1)!
+}
+
+/// A point in the editor's coordinates converted to its window's.
+@MainActor
+func windowPoint(x: CGFloat, y: CGFloat, in editor: EditorTextView) -> NSPoint {
+    editor.convert(NSPoint(x: x, y: y), to: nil)
+}
 
 /// Waits for main-actor work started by the editor (image loads, git, renders).
 @MainActor

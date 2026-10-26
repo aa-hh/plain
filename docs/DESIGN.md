@@ -15,7 +15,7 @@ One Swift package, one target per module under `Sources/`. Each module lists the
 | `FolderIndex` | `PlainCore` | The `FolderIndex` actor (the window folder's file tree), find in folder, file operations. |
 | `GitStatus` | `PlainCore` | The `GitStatus` actor (file marks from `git status`, committed text from `git show`) and the line diff behind the editor's change marks. |
 | `Spellcheck` | `PlainCore` | `SpellingEngine` (`SystemSpellingEngine` wraps `NSSpellChecker`; `WordListSpellingEngine` is for tests) and `SpellcheckController`. Takes excluded ranges as plain `NSRange` values. |
-| `EditorTextView` | `MarkdownDocument`, `PlainDocument`, `Spellcheck`, `GitStatus`, `PlainCore`, `PlainVendor` | `EditorTextView`, an `NSTextView` on TextKit 2, with styling from snapshots, typing helpers, multiple cursors, find, autocomplete, inline images and maths, spelling and Git marks. `EditorController` and `EditorView` wrap it for SwiftUI. |
+| `EditorTextView` | `MarkdownDocument`, `PlainDocument`, `Spellcheck`, `GitStatus`, `PlainCore`, `PlainVendor`, `PlainShell` | `EditorTextView`, an `NSTextView` on TextKit 2, with styling from snapshots, typing helpers, multiple cursors, find, autocomplete, inline images and maths, spelling and Git marks. `EditorController` and `EditorView` wrap it for SwiftUI. |
 | `PreviewRenderer` | `MarkdownDocument`, `PlainCore`, `PlainVendor` | `HTMLRenderer` (HTML from snapshots), `PreviewController` (keeps a `WKWebView` page in step), `Themes`, `Sanitizer`, `RichText` (copy as rich text, HTML to Markdown), `Export` (PDF and HTML). |
 | `PlainShell` | `FolderIndex`, `GitStatus`, `MarkdownDocument`, `PlainDocument`, `PlainCore` | SwiftUI views: tab bar, files and outline sidebars, popups, notification bar, stats label. Views take data as parameters and report actions through closures. |
 | `PlainAppKit` | all of the above, Yams | `AppDelegate` and `AppContext`, `WindowController` (one `NSWindow` hosting `WindowView`), `WindowModel` (one per window), `MenuBuilder`, `CommandDispatcher`, `KeyMonitor`, `Shortcuts`. |
@@ -65,7 +65,7 @@ Everything lives in `~/Library/Application Support/Plain/`:
 | `unsaved-files/` | Unsaved text kept between launches. |
 | `Introduction/` | The Welcome folder, copied from the app on first launch. |
 
-State files: `app` (focused window), `commands` (3 most recent commands), `emoji-recent`, `file-history` (up to 50 files: scroll position, selection, unsaved flag, last use), `file-revisions` (backup names), `folders` (recent folders), `hide-interface`, `keyboard-shortcuts`, `preferences`, `silent-preferences`, `preview` (chosen theme), `sidebar-expansion`, `sidebar-sections` (the sidebar's sections in order, each folded or hidden), `pins` (pinned files per folder), and per window `N`: `window-bounds-wN`, `tabs-wN` (tabs, each tab's back and forward lists, and 40 recent files per folder), `project-wN`, `sidebar-wN` (whether the sidebar shows, and its width), `preview-modes-wN`.
+State files: `app` (focused window), `commands` (3 most recent commands), `emoji-recent`, `file-history` (up to 50 files: scroll position, selection, unsaved flag, last use), `file-revisions` (backup names), `folders` (recent folders), `hide-interface`, `keyboard-shortcuts`, `preferences`, `silent-preferences`, `preview` (chosen theme), `sidebar-expansion`, `sidebar-sections` (the sidebar's sections in order, each folded or hidden), `pins` (pinned files per folder), and per window `N`: `window-bounds-wN`, `tabs-wN` (tabs, each tab's back and forward lists, and 40 recent files per folder), `project-wN`, `sidebar-wN` (whether the sidebar shows, and its width), `preview-modes-wN`, `markdown-source-wN` (whether the window shows Markdown source).
 
 ## Deviations from the spec
 
@@ -91,6 +91,7 @@ State files: `app` (focused window), `commands` (3 most recent commands), `emoji
 - One sidebar with Pinned, Recent, Files and Outline sections replaces the spec's Files and Outline sidebars, which showed one at a time (spec 897, 921). Sections fold, hide and reorder; the sidebar is dragged between 160 and 400 pt wide. Show Files and Show Outline keep their shortcuts and unfold their section; Show None is now Show Sidebar. The Files and Outline filter rows show only while in use; typing a letter in the Files tree starts its filter, which the spec does not list (spec 903).
 - Business features are left out: licences and purchases, analytics, the updater, error uploads, Caret's web links, and the Twitter and newsletter commands. The Help menu holds Open Welcome Folder and Third-Party Licences.
 - Provisional tables: a paragraph holding a `|` renders as a table only while the caret sits in it, and only when the run of `|` lines starts after a blank line or at the top of the document. Claude's scanner opens a table on any line holding a `|` and keeps it open until a blank line (`docs/claude-markdown-reference.md`).
+- The page hides all Markdown; Caret keeps markers visible and faded (spec 53–78).
 
 ## Speed
 

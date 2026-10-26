@@ -120,6 +120,130 @@ public struct PreviewThemeTokens: Sendable {
     public var printFontSize: String
 }
 
+/// The page's colours and sizes (the editor while View > Show Markdown Source is off), from the `page-*` variables of
+/// the design library.
+public struct PageTokens: Sendable {
+    public let backgroundPair = ColorPair(rgb(0xFFFFFF), rgb(0x1C1C1C))
+    public let textPair = ColorPair(rgb(0x2D2C29), rgb(0xE6E6E4))
+    public let textSecondaryPair = ColorPair(rgb(0x75746F), rgb(0x9B9A97))
+    public let textTertiaryPair = ColorPair(rgb(0xA8A7A3), rgb(0x6B6A67))
+    public let borderPair = ColorPair(rgb(0xE6E6E3), rgb(0xFFFFFF, CGFloat(0x1A) / 255))
+    public let codeBackgroundPair = ColorPair(rgb(0xF6F5F2), rgb(0xFFFFFF, CGFloat(0x0F) / 255))
+    public let hoverPair = ColorPair(rgb(0x2D2C29, CGFloat(0x0D) / 255), rgb(0xFFFFFF, CGFloat(0x0D) / 255))
+    public let menuBackgroundPair = ColorPair(rgb(0xFFFFFF), rgb(0x252525))
+    public let accentPair = ColorPair(rgb(0x2F80ED), rgb(0x4A90E2))
+    public let selectionPair = ColorPair(rgb(0x2F80ED, CGFloat(0x33) / 255), rgb(0x4A90E2, CGFloat(0x4D) / 255))
+    public let shadowPair = ColorPair(rgb(0x0F0F0F, CGFloat(0x1F) / 255), rgb(0x000000, CGFloat(0x5C) / 255))
+
+    // The same colours, following the drawing appearance.
+    public let background: NSColor
+    public let text: NSColor
+    public let textSecondary: NSColor
+    public let textTertiary: NSColor
+    public let border: NSColor
+    public let codeBackground: NSColor
+    public let hover: NSColor
+    public let menuBackground: NSColor
+    public let accent: NSColor
+    public let selection: NSColor
+    public let shadow: NSColor
+
+    init() {
+        background = backgroundPair.dynamic
+        text = textPair.dynamic
+        textSecondary = textSecondaryPair.dynamic
+        textTertiary = textTertiaryPair.dynamic
+        border = borderPair.dynamic
+        codeBackground = codeBackgroundPair.dynamic
+        hover = hoverPair.dynamic
+        menuBackground = menuBackgroundPair.dynamic
+        accent = accentPair.dynamic
+        selection = selectionPair.dynamic
+        shadow = shadowPair.dynamic
+    }
+
+    // Text sizes and line heights.
+    public let bodySize: CGFloat = 16
+    /// Line height as a multiple of the body size.
+    public let bodyLine: CGFloat = 1.5
+    /// h1 to h6.
+    public let headingSizes: [CGFloat] = [30, 24, 20, 16, 16, 16]
+    public let headingSpaceAbove: [CGFloat] = [24, 24, 16, 16, 16, 16]
+    public let headingSpaceBelow: CGFloat = 4
+    public let codeSize: CGFloat = 14
+    public let codeLine: CGFloat = 1.6
+    public let smallTextSize: CGFloat = 14
+    public let footnoteSize: CGFloat = 11
+    public let footnoteRaise: CGFloat = 6
+    public let footnoteNumberWidth: CGFloat = 20
+
+    // Page layout.
+    public let radius: CGFloat = 6
+    public let blockGap: CGFloat = 2
+    public let topPadding: CGFloat = 96
+    public let markerBox: CGFloat = 24
+    public let markerGap: CGFloat = 4
+    public let levelIndent: CGFloat = 24
+    public let checkbox: CGFloat = 16
+    public let checkboxRadius: CGFloat = 3
+    public let checkboxStroke: CGFloat = 1.5
+    public let quoteBar: CGFloat = 3
+    public let quoteIndent: CGFloat = 17
+    public let dividerSpace: CGFloat = 12
+    public let codePadSides: CGFloat = 32
+    public let codePadTop: CGFloat = 24
+    public let codePadBottom: CGFloat = 24
+    public let codeHeaderSize: CGFloat = 12
+    public let codeHeaderGap: CGFloat = 12
+    public let cellPadV: CGFloat = 8
+    public let cellPadH: CGFloat = 10
+    public let cellTextSize: CGFloat = 14
+    public let chipRadius: CGFloat = 4
+    public let chipPadH: CGFloat = 4
+    public let chipPadV: CGFloat = 2
+    public let imageRadius: CGFloat = 4
+    public let captionGap: CGFloat = 8
+    public let captionSize: CGFloat = 14
+    public let frontKeyWidth: CGFloat = 96
+    public let frontRowPad: CGFloat = 2
+
+    // Editing tools.
+    public let handleBox: CGFloat = 24
+    public let handleIcon: CGFloat = 18
+    public let handleBoxRadius: CGFloat = 4
+    public let menuWidth: CGFloat = 240
+    public let menuRow: CGFloat = 32
+    public let menuIcon: CGFloat = 16
+    public let menuLabel: CGFloat = 14
+    public let menuSmall: CGFloat = 12
+    public let slashWidth: CGFloat = 320
+    public let slashRow: CGFloat = 48
+    public let slashTile: CGFloat = 40
+    public let slashMaxRows: Int = 10
+    public let toolbarHeight: CGFloat = 36
+    public let toolbarButton: CGFloat = 28
+    public let linkEditorWidth: CGFloat = 320
+    public let languageListWidth: CGFloat = 220
+    public let dropLine: CGFloat = 3
+    public let cellOutline: CGFloat = 2
+    public let addBar: CGFloat = 12
+
+    /// Menu card shadow: offset y 4, blur 16, drawn in SwiftUI as `.shadow(color:radius: shadowRadius, x: 0, y: shadowY)`.
+    public let shadowY: CGFloat = 4
+    public let shadowBlur: CGFloat = 16
+    public let shadowRadius: CGFloat = 8
+
+    /// Code colours on the page by Prism token name: plain code text, punctuation, operators, interpolation and keys in
+    /// `page-text`, comments in `page-text-tertiary`, every other token as in the source view.
+    public var codeText: ColorPair { textPair }
+    public var codeTokenColours: [String: ColorPair] {
+        Tokens.prismTokenColours.merging([
+            "punctuation": textPair, "operator": textPair, "interpolation": textPair, "key": textPair,
+            "comment": textTertiaryPair, "shell-comment": textTertiaryPair,
+        ]) { $1 }
+    }
+}
+
 public enum Tokens {
     public static let light = Palette(
         material: rgb(0xFAFAFA),
@@ -174,6 +298,8 @@ public enum Tokens {
     )
 
     public static func palette(dark isDark: Bool) -> Palette { isDark ? dark : light }
+
+    public static let page = PageTokens()
 
     // Colours that follow the drawing appearance.
     public static let material = ColorPair(light.material, dark.material).dynamic

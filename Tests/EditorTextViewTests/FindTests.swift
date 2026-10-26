@@ -64,6 +64,34 @@ final class FindTests: XCTestCase {
         XCTAssertEqual(editor.selectedRange().length, 3)
     }
 
+    // States and limits. Turns red if page Find searches the stand-ins Copy writes for hidden Markdown, so a footnote's
+    // drawn number matches `[^1]`.
+    func testPageFindSkipsFootnoteNumbers() async {
+        let editor = await makeEditor("a[^1]\n\n[^1]: note", configuration: EditorConfiguration())
+        editor.openFind()
+        editor.findQueryChanged("1")
+        XCTAssertEqual(editor.find?.matches, [])
+        editor.findQueryChanged("note")
+        XCTAssertEqual(editor.find?.matches, [NSRange(location: 13, length: 4)])
+        editor.closeFind()
+    }
+
+    // States and limits. Turns red if page Find falls back to the raw Markdown while a parse is pending, so `**`
+    // matches the hidden markers of `**b**`.
+    func testPageFindNeverMatchesHiddenMarkers() async {
+        let editor = await makeEditor("**b**", configuration: EditorConfiguration())
+        editor.openFind()
+        editor.setSelectedRange(NSRange(location: 5, length: 0))
+        editor.insertText("c", replacementRange: NSRange(location: NSNotFound, length: 0))
+        XCTAssertNil(editor.snapshot)
+        editor.findQueryChanged("**")
+        XCTAssertEqual(editor.find?.matches, [])
+        await editor.settle()
+        XCTAssertEqual(editor.find?.query, "**")
+        XCTAssertEqual(editor.find?.matches, [])
+        editor.closeFind()
+    }
+
     // Spec 307. Turns red if matches stop updating when the document changes.
     func testMatchesFollowEdits() async {
         let editor = await makeEditor()

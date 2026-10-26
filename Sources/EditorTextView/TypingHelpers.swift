@@ -103,14 +103,22 @@ extension EditorTextView {
         let c = String(character)
         if selection.length == 0 {
             let offset = selection.location
+            if isPage {
+                if pendingInlineTyped(c, at: offset) { return true }
+                if listMarkerUnderParagraph(c, at: offset) { return true }
+            }
             if c == " ", imageLineSpace(at: offset) { return true }
             if typedInHeadingMarker(c, at: offset) { return true }
             if listTyped(c, at: offset) { return true }
             if tableTyped(c, at: offset) { return true }
             if stepOver(c, at: offset) { return true }
-            if completeOpener(c, at: offset) { return true }
+            if !isPage, completeOpener(c, at: offset) { return true }
             if pair(c, selection: selection) { return true }
             return false
+        }
+        if isPage {
+            pageReplace(selection, with: c)
+            return true
         }
         if retypeMarker(c, selection: selection) { return true }
         if wrapSelection(c, selection: selection) { return true }
@@ -124,6 +132,235 @@ extension EditorTextView {
         if let offset = caret { completeFence(at: offset) }
         tableAfterTyping()
         autocompleteAfterTyping()
+        if isPage { slashMenuTextChanged() }
+    }
+
+    // MARK: Page typing (docs/wysiwyg-spec.md)
+
+    /// The snapshot the page's typing rules read and the offset its ranges are trusted up to: the current snapshot, or
+    /// while a parse is pending the last applied one, whose ranges hold only before the lowest edit made since.
+    var pageRuleSnapshot: (snapshot: Snapshot, limit: Int)? {
+        guard isPage else { return nil }
+        if let snapshot { return (snapshot, Int.max) }
+        guard let last = lastAppliedSnapshot else { return nil }
+        return (last, lowestEditSinceApplied ?? Int.max)
+    }
+
+    /// Hidden ranges near `offset` that the typing rules may trust.
+    func pageRuleRanges(around offset: Int) -> [HiddenRange]? {
+        guard let rule = pageRuleSnapshot else { return nil }
+        if snapshot != nil { return pageHiddenRanges(around: NSRange(location: offset, length: 0)) }
+        let text = rule.snapshot.text as NSString
+        let at = min(offset, text.length)
+        var start = HiddenRanges.lineContents(at: at, in: text).location
+        if start > 0 { start = HiddenRanges.lineContents(at: start - 1, in: text).location }
+        var end = NSMaxRange(HiddenRanges.lineContents(at: at, in: text))
+        if end < text.length { end = NSMaxRange(HiddenRanges.lineContents(at: end + 1, in: text)) }
+        return HiddenRanges.list(in: NSRange(location: start, length: end - start), snapshot: rule.snapshot, text: text,
+                                 columnWidth: styler.pageColumnWidth, caret: styler.pageCaret)
+            .filter { NSMaxRange($0.range) <= rule.limit }
+    }
+
+    /// The innermost block at `offset` from the rule snapshot, when its range is trusted.
+    func pageRuleBlock(at offset: Int) -> Block? {
+        guard let rule = pageRuleSnapshot, let block = rule.snapshot.deepestBlock(at: offset), NSMaxRange(block.range) <= rule.limit else { return nil }
+        return block
+    }
+
+    /// Bold or italic chosen at an empty caret: the first character typed there is wrapped in the marker, and typing
+    /// goes on inside it.
+    private func pendingInlineTyped(_ c: String, at offset: Int) -> Bool {
+        if let allowed = allowedCaret, offset == allowed {
+            allowedCaret = allowed + (c as NSString).length
+            return false
+        }
+        guard let pending = pendingInline, pending.at == offset else { return false }
+        pendingInline = nil
+        let marker = pending.marker
+        let inside = offset + (marker as NSString).length + (c as NSString).length
+        allowedCaret = inside
+        perform(NSRange(location: offset, length: 0), marker + c + marker, caret: inside)
+        return true
+    }
+
+    /// True when the line above `lineStart` is a paragraph line (not a list, quote or heading line), so a marker
+    /// typed under it would not start a list (CommonMark).
+    private func isParagraphAbove(_ lineStart: Int) -> Bool {
+        guard lineStart > 0 else { return false }
+        let above = lineContents(at: lineStart - 1)
+        let text = nsText.substring(with: above)
+        guard !text.trimmingCharacters(in: .whitespaces).isEmpty,
+              Self.listRegex.firstMatch(in: text, range: NSRange(location: 0, length: (text as NSString).length)) == nil,
+              headingMarker(at: above.location) == nil,
+              let block = pageRuleBlock(at: above.location) else { return false }
+        switch block.kind {
+        case .paragraph: return true
+        case .setextHeading:
+            guard let underline = block.markerRanges.last else { return false }
+            return lineContents(at: underline.location).location == lineStart
+        default: return false
+        }
+    }
+
+    /// `- `, `* `, `+ ` or `1. ` typed on the line under a paragraph: a blank line goes above, so it is a list at once.
+    private func listMarkerUnderParagraph(_ c: String, at offset: Int) -> Bool {
+        guard c == " ", isMarkdownFile else { return false }
+        let line = lineContents(at: offset)
+        guard offset == NSMaxRange(line) else { return false }
+        let text = nsText.substring(with: line)
+        guard (try? /^[ \t]*([-*+]|[0-9]{1,9}[.)])$/.wholeMatch(in: text)) != nil, isParagraphAbove(line.location) else { return false }
+        perform([(NSRange(location: line.location, length: 0), "\n"), (NSRange(location: offset, length: 0), " ")],
+                select: [NSRange(location: offset + 2, length: 0)])
+        return true
+    }
+
+    /// Replaces a page selection in one step: markers of inlines reaching outside it stay, an inline whose content is
+    /// all deleted goes whole, and `text` goes in at the selection's start. Outside Markdown files it is a plain replacement.
+    func pageReplace(_ selection: NSRange, with text: String) {
+        guard isMarkdownFile else { return perform(selection, text, caret: selection.location + (text as NSString).length) }
+        var deleted = [selection]
+        var kept: [NSRange] = []
+        if let snapshot {
+            func visit(_ inlines: [Inline]) {
+                for inline in inlines where NSIntersectionRange(inline.range, selection).length > 0 || NSLocationInRange(selection.location, inline.range) {
+                    let inside = inline.range.location >= selection.location && NSMaxRange(inline.range) <= NSMaxRange(selection)
+                    if !inside {
+                        if inline.contentRange.length > 0, inline.contentRange.location >= selection.location,
+                           NSMaxRange(inline.contentRange) <= NSMaxRange(selection), !inline.markerRanges.isEmpty {
+                            deleted.append(inline.range)
+                        } else {
+                            kept.append(contentsOf: inline.markerRanges.filter { NSIntersectionRange($0, selection).length > 0 })
+                        }
+                    }
+                    visit(inline.children)
+                }
+            }
+            for block in VisibleText.blocksMeeting(selection, in: snapshot) { visit(block.inlines) }
+        }
+        // Merge the deleted ranges, then cut the kept markers out of them.
+        var merged: [NSRange] = []
+        for range in deleted.sorted(by: { $0.location < $1.location }) {
+            if let last = merged.last, range.location <= NSMaxRange(last) { merged[merged.count - 1] = NSUnionRange(last, range) } else { merged.append(range) }
+        }
+        var pieces: [NSRange] = []
+        for range in merged {
+            var start = range.location
+            for marker in kept.sorted(by: { $0.location < $1.location }) where NSIntersectionRange(marker, range).length > 0 {
+                if marker.location > start { pieces.append(NSRange(location: start, length: marker.location - start)) }
+                start = max(start, NSMaxRange(marker))
+            }
+            if NSMaxRange(range) > start { pieces.append(NSRange(location: start, length: NSMaxRange(range) - start)) }
+        }
+        let insertAt = merged.first?.location ?? selection.location
+        var edits: [(range: NSRange, text: String)] = pieces.map { ($0, "") }
+        if let index = edits.firstIndex(where: { $0.range.location == insertAt }) {
+            edits[index].text = text
+        } else {
+            edits.append((NSRange(location: insertAt, length: 0), text))
+        }
+        let removedBefore = pieces.filter { $0.location < insertAt }.reduce(0) { $0 + $1.length }
+        perform(edits, select: [NSRange(location: insertAt - removedBefore + (text as NSString).length, length: 0)])
+    }
+
+    /// Backspace on the page at a caret just after hidden Markdown (docs/wysiwyg-spec.md). Returns false to fall
+    /// through to the source view's rules.
+    private func pageBackspace(at offset: Int) -> Bool {
+        guard isMarkdownFile, let ranges = pageRuleRanges(around: offset) else { return false }
+        let ending = ranges.filter { NSMaxRange($0.range) == offset }
+        if let prefix = ending.first(where: { $0.kind == .blockPrefix }) {
+            let line = lineContents(at: prefix.range.location)
+            let aboveBlank = line.location == 0 || nsText.substring(with: lineContents(at: line.location - 1)).trimmingCharacters(in: .whitespaces).isEmpty
+            let replacement = aboveBlank ? "" : "\n"
+            perform(prefix.range, replacement, caret: prefix.range.location + (replacement as NSString).length)
+            return true
+        }
+        if let indent = ending.first(where: { $0.kind == .continuationIndent }), indent.range.location > 0 {
+            perform(NSRange(location: indent.range.location - 1, length: NSMaxRange(indent.range) - indent.range.location + 1), "",
+                    caret: indent.range.location - 1)
+            return true
+        }
+        if let separator = ending.first(where: { $0.kind == .separator }) {
+            guard separator.range.location > 0 else { return true }
+            let before = lineContents(at: separator.range.location - 1)
+            if ranges.contains(where: { $0.kind == .divider && NSLocationInRange(before.location, $0.range) }) || pageRuleBlock(at: before.location)?.kind == .thematicBreak {
+                perform(NSRange(location: before.location, length: offset - before.location), "", caret: before.location)
+                return true
+            }
+            switch pageRuleBlock(at: before.location)?.kind {
+            case .paragraph?, .atxHeading?, .setextHeading?, .listItem?, .blockQuote?:
+                perform(NSRange(location: NSMaxRange(before), length: offset - NSMaxRange(before)), "", caret: NSMaxRange(before))
+            default:
+                setSelectedRange(NSRange(location: HiddenRanges.step(from: offset, to: offset - 1, direction: -1, ranges: ranges, isEnd: false, text: nsText), length: 0))
+            }
+            return true
+        }
+        if let divider = ending.first(where: { $0.kind == .divider }) {
+            perform(divider.range, "", caret: divider.range.location)
+            return true
+        }
+        if ending.contains(where: { [.fenceLine, .tableDividerRow, .setextUnderline, .tableGap].contains($0.kind) }) { return true }
+        if let reference = ending.first(where: { $0.kind == .footnoteReference }) {
+            perform(reference.range, "", caret: reference.range.location)
+            return true
+        }
+        if !ending.isEmpty {
+            var index = offset
+            while index > 0, ranges.contains(where: { NSLocationInRange(index - 1, $0.range) }) { index -= 1 }
+            guard index > 0 else { return true }
+            let character = nsText.rangeOfComposedCharacterSequence(at: index - 1)
+            let target = pageWholeInline(around: character) ?? character
+            perform(target, "", caret: target.location)
+            return true
+        }
+        return false
+    }
+
+    /// The inline whose only content character is `character`, when there is one.
+    private func pageWholeInline(around character: NSRange) -> NSRange? {
+        guard let rule = pageRuleSnapshot else { return nil }
+        return rule.snapshot.inline(at: character.location).last {
+            $0.contentRange == character && !$0.markerRanges.isEmpty && NSMaxRange($0.range) <= rule.limit
+        }?.range
+    }
+
+    /// Delete on the page at a caret just before hidden Markdown.
+    private func pageDeleteForward(at offset: Int) -> Bool {
+        guard isMarkdownFile, let ranges = pageRuleRanges(around: offset) else { return false }
+        let starting = ranges.filter { $0.range.location == offset }
+        if let divider = starting.first(where: { $0.kind == .divider }) {
+            perform(divider.range, "", caret: offset)
+            return true
+        }
+        if starting.contains(where: { [.fenceLine, .tableDividerRow, .setextUnderline, .tableGap].contains($0.kind) }) { return true }
+        if let reference = starting.first(where: { $0.kind == .footnoteReference }) {
+            perform(reference.range, "", caret: offset)
+            return true
+        }
+        if !starting.isEmpty {
+            var index = offset
+            while index < nsText.length, ranges.contains(where: { NSLocationInRange(index, $0.range) }) { index += 1 }
+            guard index < nsText.length else { return true }
+            let character = nsText.rangeOfComposedCharacterSequence(at: index)
+            let target = pageWholeInline(around: character) ?? character
+            perform(target, "", caret: min(offset, target.location))
+            return true
+        }
+        return false
+    }
+
+    public override func deleteForward(_ sender: Any?) {
+        if isPage, helperDepth == 0, extraSelections.isEmpty, let selection = singleSelection {
+            if selection.length > 0 {
+                pageReplace(selection, with: "")
+                slashMenuTextChanged()
+                return
+            }
+            if pageDeleteForward(at: selection.location) {
+                slashMenuTextChanged()
+                return
+            }
+        }
+        super.deleteForward(sender)
     }
 
     // MARK: Headings (spec 89–91)
@@ -176,6 +413,7 @@ extension EditorTextView {
 
     private func pair(_ c: String, selection: NSRange) -> Bool {
         guard isMarkdownFile || !["*", "_"].contains(c), let closer = Self.pairs[c] else { return false }
+        if isPage, c == "`" { return false }
         if selection.length > 0 {
             if (c == "*" || c == "_") && isInCodeOrMath(selection.location) { return false }
             let inner = nsText.substring(with: selection)
@@ -203,7 +441,7 @@ extension EditorTextView {
             setSelectedRange(NSRange(location: offset + 1, length: 0))
             return true
         }
-        if isMarkdownFile && ["*", "_", ":", "$"].contains(c) {
+        if !isPage, isMarkdownFile && ["*", "_", ":", "$"].contains(c) {
             let kinds = inlines(at: offset).map(\.kind)
             let inside = kinds.contains { [.emphasis, .strong, .highlight, .code, .math].contains($0) }
             if inside {
@@ -354,6 +592,7 @@ extension EditorTextView {
             let offset = selection.location
             if imageLineNewline(at: offset) { return }
             if tableNewline(at: offset) { return }
+            if isPage, dividerUnderParagraph(at: offset) { return }
             if setextNewline(at: offset) { return }
             if closeOpenFence(at: offset) { return }
             if listNewline(at: offset) { return }
@@ -367,6 +606,15 @@ extension EditorTextView {
     /// Shift+Enter: a plain line break with no list continuation (spec 288).
     public override func insertLineBreak(_ sender: Any?) {
         super.insertText("\n", replacementRange: NSRange(location: NSNotFound, length: 0))
+    }
+
+    /// Return after `---` typed under a paragraph: a blank line goes above, so it is a divider, not a setext underline.
+    private func dividerUnderParagraph(at offset: Int) -> Bool {
+        let line = lineContents(at: offset)
+        guard isMarkdownFile, offset == NSMaxRange(line), nsText.substring(with: line) == "---", isParagraphAbove(line.location) else { return false }
+        perform([(NSRange(location: line.location, length: 0), "\n"), (NSRange(location: offset, length: 0), "\n")],
+                select: [NSRange(location: offset + 2, length: 0)])
+        return true
     }
 
     private func setextNewline(at offset: Int) -> Bool {
@@ -406,15 +654,26 @@ extension EditorTextView {
             lastTypedCharacter = nil
             return deleteBackwardAtAllCarets()
         }
+        if isPage, helperDepth == 0, let selection = singleSelection, selection.length > 0 {
+            lastTypedCharacter = nil
+            pageReplace(selection, with: "")
+            slashMenuTextChanged()
+            return
+        }
         if let offset = caret, offset > 0 {
             let deleted = nsText.substring(with: NSRange(location: offset - 1, length: 1))
             lastTypedCharacter = deleted.first
             if imageLineBackspace(at: offset) { return }
+            if isPage, helperDepth == 0, pageBackspace(at: offset) {
+                slashMenuTextChanged()
+                return
+            }
             if deleteInHeadingMarker(at: offset) { return }
             if deletePair(at: offset) { return }
             if deleteIndent(at: offset) { return }
             super.deleteBackward(sender)
             if deleted == "\n" { listRenumberAround(selectedRange().location) } else { tableAfterTyping(); autocompleteAfterTyping() }
+            if isPage { slashMenuTextChanged() }
             return
         }
         lastTypedCharacter = nil
@@ -422,6 +681,14 @@ extension EditorTextView {
     }
 
     public override func deleteWordBackward(_ sender: Any?) {
+        if isPage, helperDepth == 0, let selection = singleSelection {
+            if selection.length == 0 { moveWordBackwardAndModifySelection(nil) }
+            if let range = singleSelection, range.length > 0 {
+                pageReplace(range, with: "")
+                slashMenuTextChanged()
+                return
+            }
+        }
         if let offset = caret, deletePair(at: offset) { return }
         super.deleteWordBackward(sender)
     }
@@ -439,6 +706,7 @@ extension EditorTextView {
     public override func insertTab(_ sender: Any?) {
         if autocompleteAccept() { return }
         guard let selection = singleSelection else { return shiftLines(by: 1) }
+        if isPage, tableGridTab(forward: true) { return }
         if tableTab(forward: true, selection: selection) { return }
         if selection.length == 0, jumpInline(forward: true, at: selection.location) { return }
         if listTab(outdent: false) { return }
@@ -447,6 +715,7 @@ extension EditorTextView {
 
     public override func insertBacktab(_ sender: Any?) {
         guard let selection = singleSelection else { return shiftLines(by: -1) }
+        if isPage, tableGridTab(forward: false) { return }
         if tableTab(forward: false, selection: selection) { return }
         if selection.length == 0, jumpInline(forward: false, at: selection.location) { return }
         if listTab(outdent: true) { return }

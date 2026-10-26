@@ -175,7 +175,20 @@ extension EditorTextView {
         settingSelections = true
         setSelectedRange(main)
         settingSelections = false
-        extraSelections = clamped.filter { $0 != main }
+        let extras = clamped.filter { $0 != main }.map { range in
+            guard let hidden = pageHiddenRanges(around: range) else { return range }
+            if range.length == 0 { return NSRange(location: HiddenRanges.snap(range.location, ranges: hidden, isEnd: false), length: 0) }
+            let start = HiddenRanges.snap(range.location, ranges: hidden, isEnd: true)
+            let end = HiddenRanges.snap(NSMaxRange(range), ranges: hidden, isEnd: true)
+            return NSRange(location: min(start, end), length: abs(end - start))
+        }
+        // Carets merge only after snapping, since two can snap to one place; the main selection (snapped by
+        // `setSelectedRanges` on the page) wins over any extra it merges with.
+        let snappedMain = isPage ? selectedRange() : main
+        extraSelections = Self.merged([snappedMain] + extras).filter {
+            !($0.location <= snappedMain.location && NSMaxRange(snappedMain) <= NSMaxRange($0))
+        }
+        if isPage { styler.pageSelections = allSelections }
         extraSelectionsChanged()
     }
 
@@ -270,18 +283,25 @@ extension EditorTextView {
             if !vertical {
                 if range.length > 0 { return NSRange(location: step < 0 ? range.location : NSMaxRange(range), length: 0) }
                 let location = step < 0 ? max(range.location - 1, 0) : min(range.location + 1, nsText.length)
+                if let hidden = pageHiddenRanges(around: NSRange(location: min(location, range.location), length: 1)) {
+                    return NSRange(location: HiddenRanges.step(from: range.location, to: location, direction: step, ranges: hidden, isEnd: false, text: nsText), length: 0)
+                }
                 return NSRange(location: location, length: 0)
             }
             let line = lineContents(at: range.location)
             let column = range.location - line.location
+            var moved: Int
             if step < 0 {
                 guard line.location > 0 else { return NSRange(location: 0, length: 0) }
                 let above = lineContents(at: line.location - 1)
-                return NSRange(location: above.location + min(column, above.length), length: 0)
+                moved = above.location + min(column, above.length)
+            } else {
+                guard NSMaxRange(line) < nsText.length else { return NSRange(location: nsText.length, length: 0) }
+                let below = lineContents(at: NSMaxRange(line) + 1)
+                moved = below.location + min(column, below.length)
             }
-            guard NSMaxRange(line) < nsText.length else { return NSRange(location: nsText.length, length: 0) }
-            let below = lineContents(at: NSMaxRange(line) + 1)
-            return NSRange(location: below.location + min(column, below.length), length: 0)
+            if isPage, snapshot != nil { moved = pageVertical(from: range.location, to: moved, direction: step) }
+            return NSRange(location: moved, length: 0)
         }
         setAllSelections(moved)
         return true

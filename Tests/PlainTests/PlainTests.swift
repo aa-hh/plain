@@ -642,4 +642,26 @@ final class PlainTests: XCTestCase {
         XCTAssertEqual(controller.window.minSize, NSSize(width: 400, height: 400))
         XCTAssertTrue(model.window === controller.window)
     }
+
+    func testShowMarkdownSourceTogglesAndIsSavedPerWindow() async throws {
+        // Turns red if View > Show Markdown Source stops flipping the editor configuration and its check mark, or
+        // stops being saved in `markdown-source-wN` and read back by `restore()`.
+        let context = context()
+        let model = WindowModel(id: 31, context: context)
+        XCTAssertFalse(model.isOn("window:toggle-markdown-source"))
+        XCTAssertFalse(model.configuration.showMarkdownSource)
+        model.perform("window:toggle-markdown-source")
+        XCTAssertTrue(model.isOn("window:toggle-markdown-source"))
+        XCTAssertTrue(model.configuration.showMarkdownSource)
+        var saved = false
+        for _ in 0..<100 where !saved {
+            saved = await context.store.load(WindowModel.markdownSourceName(31), as: Bool.self) == true
+            if !saved { try await Task.sleep(for: .milliseconds(20)) }
+        }
+        XCTAssertTrue(saved)
+        let restored = WindowModel(id: 31, context: context)
+        await restored.restore()
+        XCTAssertTrue(restored.isOn("window:toggle-markdown-source"))
+        XCTAssertTrue(restored.configuration.showMarkdownSource)
+    }
 }

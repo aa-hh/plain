@@ -7,6 +7,7 @@ import PlainDocument
 import GitStatus
 import PlainVendor
 import Spellcheck
+import UniformTypeIdentifiers
 
 /// The editor settings that change how text is laid out and drawn.
 public struct EditorConfiguration: Equatable, Sendable {
@@ -20,9 +21,13 @@ public struct EditorConfiguration: Equatable, Sendable {
     public var typewriter: Bool
     public var darkMode: Bool
     public var tabSize: Int
+    /// True for View > Show Markdown Source: the editor shows the Markdown as text. False shows the page, where the
+    /// Markdown is hidden and blocks are drawn.
+    public var showMarkdownSource: Bool
 
     public init(fontSize: CGFloat = 15, codeFontSize: CGFloat = 13, lineHeight: CGFloat = 1.6, lineWidth: CGFloat = 72,
-                largeHeadings: Bool = true, typewriter: Bool = false, darkMode: Bool = false, tabSize: Int = 2) {
+                largeHeadings: Bool = true, typewriter: Bool = false, darkMode: Bool = false, tabSize: Int = 2,
+                showMarkdownSource: Bool = false) {
         self.fontSize = fontSize
         self.codeFontSize = codeFontSize
         self.lineHeight = lineHeight
@@ -31,10 +36,14 @@ public struct EditorConfiguration: Equatable, Sendable {
         self.typewriter = typewriter
         self.darkMode = darkMode
         self.tabSize = tabSize
+        self.showMarkdownSource = showMarkdownSource
     }
 
     /// One text line in points.
     public var linePoints: CGFloat { (fontSize * lineHeight).rounded() }
+
+    /// The prose size: `fontSize` in the source view, the page's fixed body size on the page.
+    public var proseFontSize: CGFloat { showMarkdownSource ? fontSize : Tokens.page.bodySize }
 }
 
 /// Work the editor hands to other modules, injected by the window that owns it.
@@ -65,6 +74,16 @@ public struct EditorActions {
     public var zoom: (NSImage) -> Void = { _ in }
     /// Opens a file at a text offset (To Last Edit across files).
     public var openFile: (URL, Int) -> Void = { _, _ in }
+    /// Asks for a picture file (the `/` menu's Image block); nil when cancelled.
+    public var chooseImage: @MainActor () -> URL? = {
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = OpenableFiles.imageExtensions.compactMap { UTType(filenameExtension: $0) }
+        panel.allowsMultipleSelection = false
+        panel.canChooseDirectories = false
+        return panel.runModal() == .OK ? panel.url : nil
+    }
+    /// Every file in the window's folder (the link editor's "Link to file…").
+    public var folderFiles: () -> [URL] = { [] }
 
     public init() {}
 }
@@ -119,6 +138,21 @@ public final class EditorTextView: NSTextView, @preconcurrency NSTextLayoutManag
     private var styledOnce = false
     /// Edits sent but not yet covered by a delivered snapshot: version, location, old length, new length.
     private var editLog: [(version: Int, location: Int, oldLength: Int, newLength: Int)] = []
+    /// The smallest location edited since `lastAppliedSnapshot` was applied; nil when nothing was edited since. Text
+    /// before it has the same offsets as in that snapshot.
+    private(set) var lowestEditSinceApplied: Int?
+    /// The last snapshot applied to the text; unlike `snapshot` it stays set while a parse is pending.
+    private(set) var lastAppliedSnapshot: Snapshot?
+    /// Bold or italic chosen with an empty caret on the page: the next character typed at `at` is wrapped in `marker`.
+    var pendingInline: (kind: InlineKind, marker: String, at: Int)?
+    /// A caret position the page keeps although it lies in hidden Markdown (inside a just-made `**…**`).
+    var allowedCaret: Int?
+    /// Set by the arrow-key overrides around their `super` call; nil for every other selection change.
+    var pageMove: (direction: Int, vertical: Bool)?
+    let slashMenu = SlashMenuController()
+    let blockHandle = BlockHandleController()
+    let selectionToolbar = SelectionToolbarController()
+    let tableGrid = TableGridController()
     /// Text that needs restyling once a current snapshot arrives, in current text offsets.
     private var dirtyRange: NSRange?
     private var editObserver: NSObjectProtocol?
@@ -224,10 +258,8 @@ public final class EditorTextView: NSTextView, @preconcurrency NSTextLayoutManag
         autoresizingMask = [.width]
         minSize = NSSize(width: 0, height: 0)
         maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
-        insertionPointColor = Tokens.color
         drawsBackground = true
-        backgroundColor = Tokens.material
-        selectedTextAttributes = [.backgroundColor: Tokens.selectionBlue]
+        applyColours()
 
         EditorLayoutFragment.labelCodeSize = configuration.codeFontSize
         applyBaseAttributes()
@@ -254,19 +286,44 @@ public final class EditorTextView: NSTextView, @preconcurrency NSTextLayoutManag
 
     public func apply(_ newConfiguration: EditorConfiguration) {
         guard newConfiguration != configuration else { return }
+        let previous = configuration
         configuration = newConfiguration
         styler.configuration = newConfiguration
         EditorLayoutFragment.labelCodeSize = newConfiguration.codeFontSize
         appearance = NSAppearance(named: newConfiguration.darkMode ? .darkAqua : .aqua)
+        let modeChanged = newConfiguration.showMarkdownSource != previous.showMarkdownSource
+        applyColours()
         applyBaseAttributes()
         updateGeometry()
         if let snapshot { restyleAll(snapshot) }
         typewriterConfigurationChanged()
+        if modeChanged {
+            closeSlashMenu()
+            closeBlockHandle()
+            closeSelectionToolbar()
+            closeTableGrid()
+            setAllSelections(allSelections)
+        }
+    }
+
+    var isPage: Bool { !configuration.showMarkdownSource }
+
+    /// Background, caret and selection colours: the page's on the page, today's in the source view.
+    private func applyColours() {
+        if isPage {
+            backgroundColor = Tokens.page.background
+            insertionPointColor = Tokens.page.text
+            selectedTextAttributes = [.backgroundColor: Tokens.page.selection]
+        } else {
+            backgroundColor = Tokens.material
+            insertionPointColor = Tokens.color
+            selectedTextAttributes = [.backgroundColor: Tokens.selectionBlue]
+        }
     }
 
     /// `ceil(lineWidth × width of "a")` in the prose font (spec 38, 1364).
     public var columnWidth: CGFloat {
-        let a = NSAttributedString(string: "a", attributes: [.font: EditorFonts.prose(configuration.fontSize)]).size().width
+        let a = NSAttributedString(string: "a", attributes: [.font: EditorFonts.prose(configuration.proseFontSize)]).size().width
         return ceil(configuration.lineWidth * a)
     }
 
@@ -276,7 +333,7 @@ public final class EditorTextView: NSTextView, @preconcurrency NSTextLayoutManag
             let half = ((enclosingScrollView?.contentSize.height ?? bounds.height) / 2).rounded()
             return (half, half)
         }
-        return (Tokens.editorTopPadding, Tokens.editorBottomPadding)
+        return (isPage ? Tokens.page.topPadding : Tokens.editorTopPadding, Tokens.editorBottomPadding)
     }
 
     func updateGeometry() {
@@ -286,6 +343,12 @@ public final class EditorTextView: NSTextView, @preconcurrency NSTextLayoutManag
         textContainer?.size = NSSize(width: width, height: CGFloat.greatestFiniteMagnitude)
         let padding = verticalPadding
         textContainerInset = NSSize(width: max(side, 0), height: (padding.top + padding.bottom) / 2)
+        if styler.pageColumnWidth != width {
+            styler.pageColumnWidth = width
+            if isPage, let snapshot {
+                for table in snapshot.blocks(where: { $0.kind == .table }) { styler.restyle(snapshot: snapshot, range: table.range) }
+            }
+        }
         needsDisplay = true
     }
 
@@ -300,6 +363,7 @@ public final class EditorTextView: NSTextView, @preconcurrency NSTextLayoutManag
         if widthChanged {
             updateGeometry()
             closeAutocomplete()
+            closePageTools()
         }
     }
 
@@ -335,6 +399,7 @@ public final class EditorTextView: NSTextView, @preconcurrency NSTextLayoutManag
         let old = NSRange(location: edited.location, length: edited.length - delta)
         appliedVersion = markdown.apply(TextEdit(range: old, replacement: replacement))
         editLog.append((appliedVersion.rawValue, old.location, old.length, edited.length))
+        lowestEditSinceApplied = min(lowestEditSinceApplied ?? old.location, old.location)
         dirtyRange = dirtyRange.map { NSUnionRange(Self.map($0, location: old.location, oldLength: old.length, newLength: edited.length), edited) } ?? edited
         snapshot = nil
         if helperDepth == 0, !extraSelections.isEmpty {
@@ -380,7 +445,7 @@ public final class EditorTextView: NSTextView, @preconcurrency NSTextLayoutManag
         }
     }
 
-    private func received(_ snapshot: Snapshot, initial isFirst: Bool) {
+    func received(_ snapshot: Snapshot, initial isFirst: Bool) {
         guard snapshot.version > handledVersion else { return }
         let first = isFirst || handledVersion.rawValue < 0
         let initial = !styledOnce
@@ -398,6 +463,8 @@ public final class EditorTextView: NSTextView, @preconcurrency NSTextLayoutManag
         dirtyRange = initial ? nil : (dirtyRange.map { NSUnionRange($0, changed) } ?? changed)
         guard snapshot.version == appliedVersion else { return }
         self.snapshot = snapshot
+        lastAppliedSnapshot = snapshot
+        lowestEditSinceApplied = nil
         if initial {
             styledOnce = true
             restyleAll(snapshot)
@@ -408,6 +475,7 @@ public final class EditorTextView: NSTextView, @preconcurrency NSTextLayoutManag
         needsDisplay = true
         spellingSnapshotArrived()
         for observer in snapshotObservers { observer(snapshot) }
+        if isPage, find != nil { findTextChanged() }
     }
 
     /// Restyles the visible text now and the rest in slices on later main-actor turns.
@@ -453,6 +521,31 @@ public final class EditorTextView: NSTextView, @preconcurrency NSTextLayoutManag
         drawExtraSelections(in: rect)
         drawGitMarks(in: rect)
         for drawer in backgroundDrawers { drawer(rect) }
+        drawPlaceholder(in: rect)
+    }
+
+    /// "Type / for blocks" on the page's empty line holding the only caret, outside code, maths, front matter and HTML.
+    private func drawPlaceholder(in rect: NSRect) {
+        guard isPage, window?.firstResponder === self, let offset = caret, lineContents(at: offset).length == 0,
+              let snapshot else { return }
+        switch snapshot.deepestBlock(at: offset)?.kind {
+        case .fencedCode?, .indentedCode?, .mathBlock?, .frontMatter?, .htmlBlock?, .htmlComment?: return
+        default: break
+        }
+        let line = self.rect(forCharacterRange: NSRange(location: offset, length: 0))
+        guard line.intersects(rect) || rect.isEmpty else { return }
+        let font = NSFont.systemFont(ofSize: Tokens.page.bodySize)
+        let string = NSAttributedString(string: "Type / for blocks", attributes: [.font: font, .foregroundColor: Tokens.page.textTertiary])
+        string.draw(at: NSPoint(x: line.minX, y: line.minY + (line.height - string.size().height) / 2))
+    }
+
+    /// Marks the lines of the empty carets in `ranges` for redrawing, so the placeholder follows the caret.
+    private func redrawCaretLines(_ ranges: [NSRange]) {
+        guard isPage else { return }
+        for range in ranges where range.length == 0 && range.location <= nsText.length {
+            let line = rect(forCharacterRange: NSRange(location: range.location, length: 0))
+            setNeedsDisplay(NSRect(x: columnLeft, y: line.minY, width: columnRight - columnLeft, height: line.height))
+        }
     }
 
     /// The full-column `--highlight` band behind fenced code, math, front matter and HTML block lines (spec 72, 1300).
@@ -511,6 +604,7 @@ public final class EditorTextView: NSTextView, @preconcurrency NSTextLayoutManag
     // MARK: Keys and focus
 
     public override func doCommand(by selector: Selector) {
+        if slashMenuHandles(selector) { return }
         if autocompleteCommand(selector) { return }
         switch selector {
         case #selector(insertNewlineIgnoringFieldEditor(_:)):
@@ -528,6 +622,7 @@ public final class EditorTextView: NSTextView, @preconcurrency NSTextLayoutManag
 
     /// Esc: closes the autocomplete list, else clears an empty list item (spec 128, 183).
     func escapePressed() {
+        if slashMenuHandles(#selector(NSResponder.cancelOperation(_:))) { return }
         if autocomplete != nil { return closeAutocomplete() }
         if find != nil { return closeFind() }
         if !extraSelections.isEmpty { return setAllSelections([selectedRange()]) }
@@ -536,7 +631,20 @@ public final class EditorTextView: NSTextView, @preconcurrency NSTextLayoutManag
 
     public override func setSelectedRanges(_ ranges: [NSValue], affinity: NSSelectionAffinity, stillSelecting: Bool) {
         let previous = allSelections
+        var ranges = ranges
+        if isPage, let main = ranges.first?.rangeValue {
+            ranges[0] = NSValue(range: pageAdjusted(main, previous: selectedRange()))
+        }
         super.setSelectedRanges(ranges, affinity: affinity, stillSelecting: stillSelecting)
+        if isPage {
+            if helperDepth == 0 {
+                let main = selectedRange()
+                if main.length != 0 || main.location != allowedCaret { allowedCaret = nil }
+                if main.length != 0 || main.location != pendingInline?.at { pendingInline = nil }
+            }
+            pageTypingAttributes()
+            styler.pageSelections = allSelections
+        }
         if autocomplete != nil { closeAutocomplete() }
         if !settingSelections && helperDepth == 0 {
             if !extraSelections.isEmpty { clearExtraSelections() }
@@ -546,11 +654,70 @@ public final class EditorTextView: NSTextView, @preconcurrency NSTextLayoutManag
     }
 
     public override func mouseDown(with event: NSEvent) {
+        if isPage {
+            closeSlashMenu()
+            closeBlockHandle()
+            closeSelectionToolbar()
+        }
         if clickedLink(event) { return }
+        if isPage {
+            if clickedTaskBox(event) { return }
+            if clickedCodeLabel(event) { return }
+            if tableGridMouseDown(event) {
+                selectionToolbarAfterMouseUp()
+                return
+            }
+        }
         if handleSelectionClick(event) { return }
         if clickedImage(event) { return }
         super.mouseDown(with: event)
         typewriterCenter()
+        if isPage { selectionToolbarAfterMouseUp() }
+    }
+
+    /// A single click in a page task line's box ticks or unticks it; the later clicks of a double or triple click in the
+    /// box do nothing, so the box is not ticked twice.
+    private func clickedTaskBox(_ event: NSEvent) -> Bool {
+        let point = convert(event.locationInWindow, from: nil)
+        let line = lineContents(at: characterIndexForInsertion(at: point))
+        guard line.location < nsText.length,
+              let marker = document.textStorage.attribute(.plainPageMarker, at: line.location, effectiveRange: nil) as? PageMarker,
+              case .task = marker.kind else { return false }
+        let first = rect(forCharacterRange: NSRange(location: line.location, length: 0))
+        guard NSRect(x: columnLeft + marker.x, y: first.minY, width: Tokens.page.markerBox, height: first.height).contains(point) else { return false }
+        if event.clickCount == 1 { toggleTask(at: line.location) }
+        return true
+    }
+
+    /// A click on a code panel's language label opens the language list.
+    private func clickedCodeLabel(_ event: NSEvent) -> Bool {
+        let point = convert(event.locationInWindow, from: nil)
+        let line = lineContents(at: characterIndexForInsertion(at: point))
+        guard line.location < nsText.length,
+              let slice = document.textStorage.attribute(.plainPagePanel, at: line.location, effectiveRange: nil) as? PagePanelSlice,
+              let label = slice.label else { return false }
+        let page = Tokens.page
+        let width = NSAttributedString(string: label, attributes: [.font: NSFont.systemFont(ofSize: page.codeHeaderSize)]).size().width
+        let first = rect(forCharacterRange: NSRange(location: line.location, length: 0))
+        let hit = NSRect(x: columnLeft + page.codePadSides, y: first.minY + page.codePadTop, width: width + 4 + page.codeHeaderSize, height: 18)
+        guard hit.contains(point) else { return false }
+        openLanguageList(fenceLineStart: line.location)
+        return true
+    }
+
+    public override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        for area in trackingAreas where area.userInfo?["plainPage"] != nil { removeTrackingArea(area) }
+        addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseMoved, .mouseEnteredAndExited, .activeInKeyWindow, .inVisibleRect],
+                                       owner: self, userInfo: ["plainPage": true]))
+    }
+
+    /// Closes the `/` menu, the block handle, the selection toolbar and the table grid.
+    func closePageTools() {
+        closeSlashMenu()
+        closeBlockHandle()
+        closeSelectionToolbar()
+        closeTableGrid()
     }
 
     public override func becomeFirstResponder() -> Bool {
@@ -561,6 +728,13 @@ public final class EditorTextView: NSTextView, @preconcurrency NSTextLayoutManag
     public override func resignFirstResponder() -> Bool {
         closeAutocomplete()
         linkMode = false
+        if isPage {
+            // A tool's own text field taking focus keeps its tool open.
+            Task { @MainActor [weak self] in
+                guard let self, !((self.window?.firstResponder as? NSView)?.isDescendant(of: self) ?? false) else { return }
+                self.closePageTools()
+            }
+        }
         return super.resignFirstResponder()
     }
 
@@ -572,6 +746,14 @@ public final class EditorTextView: NSTextView, @preconcurrency NSTextLayoutManag
 
     /// Runs after every selection change that is not a drag in progress.
     func selectionMoved(from previous: [NSRange]) {
+        redrawCaretLines(previous + allSelections)
+        if isPage {
+            slashMenuSelectionMoved()
+            blockHandleSelectionMoved()
+            selectionToolbarSelectionMoved()
+            tableGridSelectionMoved()
+            restyleSourceZones(previous: previous)
+        }
         imageSelectionMoved(from: previous)
         mathSelectionMoved(from: previous)
         typewriterCenter()
@@ -582,11 +764,28 @@ public final class EditorTextView: NSTextView, @preconcurrency NSTextLayoutManag
         for observer in stateObservers { observer() }
     }
 
+    /// Restyles the front matter when a selection entered or left its zone, and each setext heading whose underline
+    /// holds the previous or the new main caret, so their source shows or hides.
+    private func restyleSourceZones(previous: [NSRange]) {
+        guard let snapshot else { return }
+        if let front = snapshot.blocks.first, front.kind == .frontMatter,
+           MarkdownStyler.selectionsTouch(front, selections: allSelections, text: nsText) != styler.frontMatterShownAsSource {
+            styler.restyle(snapshot: snapshot, range: front.range)
+        }
+        for range in [previous.first, allSelections.first].compactMap({ $0 }) where range.length == 0 && range.location <= nsText.length {
+            guard let block = snapshot.deepestBlock(at: range.location), case .setextHeading = block.kind,
+                  let underline = block.markerRanges.first else { continue }
+            let line = lineContents(at: underline.location)
+            if range.location >= line.location, range.location <= NSMaxRange(line) { styler.restyle(snapshot: snapshot, range: block.range) }
+        }
+    }
+
     /// Leaving its scroll view ends this editor: a later editor for the tab takes over the tab's parser, so this one
     /// stops sending it edits and taking its snapshots.
     public override func viewWillMove(toSuperview newSuperview: NSView?) {
         super.viewWillMove(toSuperview: newSuperview)
         guard newSuperview == nil, superview != nil else { return }
+        closePageTools()
         if let editObserver { NotificationCenter.default.removeObserver(editObserver) }
         editObserver = nil
         snapshotTask?.cancel()

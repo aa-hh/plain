@@ -211,6 +211,7 @@ extension Command {
         c("Add Theme…", "application:add-custom-theme", .view),
         c("Mode Dark", "window:dark-mode", .view, "Cmd Alt L", "Cmd Ctrl N", kind: .checkbox),
         c("Mode Typewriter", "window:typewriter-mode", .view, "Cmd Alt T", kind: .checkbox),
+        c("Show Markdown Source", "window:toggle-markdown-source", .view, "Cmd Shift M", kind: .checkbox),
         c("Show Stats", "window:toggle-text-stats", .view, kind: .checkbox),
         c("Font Size Up", "window:font-size-increase", .view, "Cmd Plus", "Cmd Shift Plus", configurable: false),
         c("Font Size Down", "window:font-size-decrease", .view, "Cmd Minus", configurable: false),

@@ -6,10 +6,16 @@ import PlainVendor
 import SwiftUI
 
 /// A Lucide icon from the vendor files, 16 × 16 in the tertiary colour unless told otherwise.
-struct LucideIcon: View {
+public struct LucideIcon: View {
     let name: String
-    var size: CGFloat = 16
-    var colour: Color = .tertiaryText
+    var size: CGFloat
+    var colour: Color
+
+    public init(name: String, size: CGFloat = 16, colour: Color = Color(nsColor: Tokens.colorTertiary)) {
+        self.name = name
+        self.size = size
+        self.colour = colour
+    }
 
     @MainActor static var cache: [String: NSImage] = [:]
 
@@ -21,7 +27,7 @@ struct LucideIcon: View {
         return image
     }
 
-    var body: some View {
+    public var body: some View {
         Image(nsImage: Self.image(name))
             .resizable()
             .foregroundStyle(colour)

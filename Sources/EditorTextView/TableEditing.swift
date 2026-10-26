@@ -88,7 +88,7 @@ extension EditorTextView {
     }
 
     /// An empty row with cells as wide as the divider's.
-    private func emptyRow(like table: TextTable) -> String {
+    static func emptyRow(like table: TextTable) -> String {
         let divider = table.rows[table.dividerIndex]
         var parts = divider.slots.map { String(repeating: " ", count: max($0.length, 3)) }
         if parts.isEmpty { parts = ["   "] }
@@ -108,7 +108,7 @@ extension EditorTextView {
                 perform(line, "", caret: line.location)
                 return true
             }
-            let empty = emptyRow(like: table)
+            let empty = Self.emptyRow(like: table)
             let caretInCell = (table.leadingPipe ? 2 : 1)
             perform(NSRange(location: NSMaxRange(line), length: 0), "\n" + empty, caret: NSMaxRange(line) + 1 + caretInCell)
             return true
@@ -131,7 +131,7 @@ extension EditorTextView {
         guard c == "|", isMarkdownFile, offset > 0 else { return false }
         let line = lineContents(at: offset)
         guard line.length == 0, line.location > 0, let table = table(at: line.location - 1) else { return false }
-        let empty = emptyRow(like: table)
+        let empty = Self.emptyRow(like: table)
         perform(NSRange(location: offset, length: 0), empty, caret: offset + (table.leadingPipe ? 2 : 1))
         return true
     }

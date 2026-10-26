@@ -31,6 +31,28 @@ colors:
   dark-color-blue: "#8799AC"
   dark-color-red: "rgba(232,125,125,0.7)"
   dark-color-gold: "#A8998A"
+  page-background: "#FFFFFF"
+  page-text: "#2D2C29"
+  page-text-secondary: "#75746F"
+  page-text-tertiary: "#A8A7A3"
+  page-border: "#E6E6E3"
+  page-code-background: "#F6F5F2"
+  page-hover: "rgba(45,44,41,0.051)"
+  page-menu-background: "#FFFFFF"
+  page-accent: "#2F80ED"
+  page-selection: "rgba(47,128,237,0.2)"
+  page-shadow: "rgba(15,15,15,0.122)"
+  dark-page-background: "#1C1C1C"
+  dark-page-text: "#E6E6E4"
+  dark-page-text-secondary: "#9B9A97"
+  dark-page-text-tertiary: "#6B6A67"
+  dark-page-border: "rgba(255,255,255,0.102)"
+  dark-page-code-background: "rgba(255,255,255,0.059)"
+  dark-page-hover: "rgba(255,255,255,0.051)"
+  dark-page-menu-background: "#252525"
+  dark-page-accent: "#4A90E2"
+  dark-page-selection: "rgba(74,144,226,0.302)"
+  dark-page-shadow: "rgba(0,0,0,0.361)"
 typography:
   editor-body:
     fontFamily: "system-ui"
@@ -236,8 +258,41 @@ Plain text, no backgrounds.
 - **Current file:** `selection-neutral` behind the row.
 - **Git marks:** `+` added, `~` changed, `D` deleted, `R` renamed, all in tertiary text.
 
-### Editor
-Markdown stays visible and styled in place. Markers fade to secondary or tertiary text, links turn blue inside faded brackets, inline code turns gold in Roboto Mono, and find, spelling and highlights paint tints behind the text.
+### Source view
+What View > Show Markdown Source shows. Markdown stays visible and styled in place. Markers fade to secondary or tertiary text, links turn blue inside faded brackets, inline code turns gold in Roboto Mono, and find, spelling and highlights paint tints behind the text.
+
+## Page
+
+What the editor shows while View > Show Markdown Source is off, from `Tokens.page`. The Markdown stays in the file but never shows: each marker is set in a 0.01 pt clear font, the caret steps over it, and `EditorLayoutFragment` draws bullets, boxes, bars, rules, panels and grids from attributes the styler sets. Copy writes the visible text and keeps the Markdown under `com.alechenderson.Plain.markdown` for Plain's own pastes.
+
+- **Page:** `page-background`, text 16 pt system on a 24 pt line in `page-text`, 96 pt above the first block, a column 72 widths of "a" at 16 pt.
+- **Code:** Roboto Mono 14 on a 22.4 pt line (1.6).
+- **Corners:** 6 pt panels and menu cards, 4 pt code chips, pictures and handle boxes, 3 pt checkboxes.
+- **Tool tokens:** menu cards on `page-menu-background` with a 1 pt `page-border` ring and `page-shadow` (offset 4, blur 16); block menu 240 pt with 32 pt rows; `/` menu 320 pt with 48 pt rows, 40 pt tiles, at most 10 rows; toolbar 36 pt with 28 pt buttons; link editor 320 pt; language list 220 pt; 3 pt drop line, 2 pt cell outline, 12 pt add bars; 24 pt handle boxes with 18 pt icons.
+
+| Block | Markdown | On the page |
+|---|---|---|
+| Text | a paragraph | 16 pt on 24 |
+| Heading 1 to 6 | `#` … `######`, or a setext underline | bold 30 / 24 / 20 / 16 / 16 / 16 pt on 1.5× lines, 24 pt above h1 and h2, 16 above the rest, 4 below; a setext underline shows while the caret is on it |
+| Bold, italic, strikethrough | `**` `_` `~~` | the style; struck text in `page-text-secondary` with a line through it |
+| Inline code | `` ` `` | Roboto Mono 14 in `color-red` on a `page-code-background` chip, 4 pt each side, 2 pt above and below |
+| Highlight | `::text::` | `selection-yellow` behind the text |
+| Link | `[text](url)`, `<url>`, reference links, bare URLs | `page-text` with a `page-text-tertiary` underline; the tooltip shows the destination |
+| Bulleted list | `-` `*` `+` | `•` at 24 pt centred in a 24 pt box; text at 28 pt, 24 pt more per level |
+| Numbered list | `1.` | the number, 16 pt, in the box |
+| Task list | `- [ ]` `- [x]` | a 16 pt box, 1.5 pt `page-text-secondary` ring; ticked: `page-accent` fill, white Lucide `check`, text `page-text-tertiary` struck through; a click on the box ticks it |
+| Quote | `>` | a 3 pt `page-text` bar per level, text 17 pt in per level |
+| Divider | `---` | a 1 pt `page-border` line on a 25 pt line, 12 pt above it |
+| Code block | a fenced block | a `page-code-background` panel: 54 pt opening line (24 padding, 18 label row, 12 gap) with the 12 pt language label and a `chevron-down` at 32, 24; 32 pt sides; 24 pt closing line |
+| Table | pipes and a delimiter row | 37 pt rows, 14 pt cells with 10 pt side padding, header bold on `page-code-background`, 1 pt `page-border` lines; a table wider than the column stays Markdown with "Too wide to show as a table" under it |
+| Image | an image-only line | the picture with 4 pt corners, the alt text 8 pt below it in 14 pt `page-text-secondary` |
+| Maths block | `$$` | the rendered formula, centred; its source shows while a selection is on or next to it |
+| Footnotes | `[^1]`, `[^1]: …` | a reference is an 11 pt `page-accent` number raised 6 pt; a definition is 14 pt `page-text-secondary`, its number in a 24 pt margin |
+| Front matter | `---` YAML at the top | 14 pt rows on 25 pt lines, keys in `page-text-secondary`, values in `page-text` from 96 pt; shows as YAML in a code panel while a selection is on or next to it |
+| HTML, Liquid, `{…}` attributes, emoji shortcodes | as written | shown as written, in `page-text-secondary` |
+| Blank lines | the last blank line between two blocks | 2 pt tall, and the caret skips it |
+
+An empty line holding the caret shows "Type / for blocks" in 16 pt `page-text-tertiary`. Selected text fills `page-selection`.
 
 ## Do's and Don'ts
 
