@@ -49,14 +49,7 @@ struct PostPass {
         nextID = pass.nextID
 
         // The caret's block keeps its settled kind; the snapshot carries the kind to show for it.
-        var provisional: ProvisionalBlock?
-        if let caretOffset {
-            let caretLine = source.line(containing: caretOffset)
-            if let index = blocks.firstIndex(where: { $0.lineRange.contains(caretLine) }),
-               case .paragraph = blocks[index].kind, let pipes = pass.provisionalTablePipes(blocks[index]) {
-                provisional = ProvisionalBlock(id: blocks[index].id, kind: .table, pipeOffsets: pipes)
-            }
-        }
+        let provisional = caretOffset.flatMap { Self.provisionalTable(caret: $0, in: source, blocks: blocks) }
         return (blocks, provisional)
     }
 
@@ -69,6 +62,19 @@ struct PostPass {
     /// a `|` is a table once a delimiter row follows it, and until then a run of `|` lines is held as one, the way
     /// Claude's scanner opens a table on any line holding a `|` and closes it at a blank line.
     func provisionalTablePipes(_ paragraph: Block) -> [Int]? {
+        Self.provisionalTablePipes(paragraph, in: source)
+    }
+
+    /// The same classification without a parse, so a caret move that changes no text costs no reparse (issue 4).
+    static func provisionalTable(caret: Int, in source: Source, blocks: [Block]) -> ProvisionalBlock? {
+        let caretLine = source.line(containing: caret)
+        guard let block = blocks.first(where: { $0.lineRange.contains(caretLine) }),
+              case .paragraph = block.kind,
+              let pipes = provisionalTablePipes(block, in: source) else { return nil }
+        return ProvisionalBlock(id: block.id, kind: .table, pipeOffsets: pipes)
+    }
+
+    static func provisionalTablePipes(_ paragraph: Block, in source: Source) -> [Int]? {
         let lines = paragraph.lineRange
         guard !lines.isEmpty else { return nil }
         // A run of table lines starts after a blank line, or at the top of the document.

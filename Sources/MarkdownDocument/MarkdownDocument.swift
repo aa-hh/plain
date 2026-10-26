@@ -8,6 +8,9 @@ public actor MarkdownDocument {
     private struct Inbox {
         var version = 0
         var pending: [TextEdit] = []
+        /// The caret position, and whether a move is waiting to be turned into a snapshot.
+        var caret: Int?
+        var caretPending = false
         var draining = false
         var streams: [UUID: AsyncStream<Snapshot>.Continuation] = [:]
     }
@@ -56,6 +59,17 @@ public actor MarkdownDocument {
         TextVersion(rawValue: inbox.withLock { $0.version })
     }
 
+    /// Publishes where the caret sits, which is the only word the parser gets about it outside an edit (issue 4).
+    /// Returns the snapshot published, or nil when the kind to show did not change and nothing was published, which
+    /// is what keeps a caret move between two settled blocks free.
+    public func caretMoved(to offset: Int) async -> Snapshot? {
+        inbox.withLock { inbox in
+            inbox.caret = offset
+            inbox.caretPending = true
+        }
+        return await drain()
+    }
+
     /// A new stream on each access; every stream receives every snapshot published after it was made.
     public nonisolated var snapshots: AsyncStream<Snapshot> {
         let (stream, continuation) = AsyncStream<Snapshot>.makeStream()
@@ -76,22 +90,57 @@ public actor MarkdownDocument {
         return await withCheckedContinuation { waiters.append((version, $0)) }
     }
 
-    private func drain() {
+    private func drain() async -> Snapshot? {
+        var published: Snapshot?
         while true {
-            let batch: ([TextEdit], Int)? = inbox.withLock { inbox in
-                guard !inbox.pending.isEmpty else {
+            let batch: ([TextEdit], Int?, TextVersion)? = inbox.withLock { inbox in
+                guard !inbox.pending.isEmpty || inbox.caretPending else {
                     inbox.draining = false
                     return nil
                 }
-                defer { inbox.pending.removeAll(keepingCapacity: true) }
-                return (inbox.pending, inbox.version)
+                defer {
+                    inbox.pending.removeAll(keepingCapacity: true)
+                    inbox.caretPending = false
+                }
+                // A caret move that changes no text still needs a version of its own, or the consumers that
+                // filter on it would drop the snapshot.
+                if inbox.pending.isEmpty { inbox.version += 1 }
+                return (inbox.pending, inbox.caret, TextVersion(rawValue: inbox.version))
             }
-            guard let (edits, version) = batch else { return }
-            publish(process(edits, version: TextVersion(rawValue: version)))
+            guard let (edits, caret, version) = batch else { break }
+            if edits.isEmpty, let caret {
+                // No text changed, so nothing is reparsed: only the kind to show can move.
+                if let snapshot = provisionalSnapshot(caret: caret, version: version) {
+                    publish(snapshot)
+                    published = snapshot
+                }
+                continue
+            }
+            let snapshot = publish(process(edits, caret: caret, version: version))
+            published = snapshot
         }
+        return published
     }
 
-    private func publish(_ snapshot: Snapshot) {
+    /// The current snapshot with only the provisional kind swapped, for a caret move that changed no text.
+    private func provisionalSnapshot(caret: Int, version: TextVersion) -> Snapshot? {
+        let next = PostPass.provisionalTable(caret: caret, in: source, blocks: current.blocks)
+        let previous = current.provisional
+        guard next?.id != previous?.id || next?.kind != previous?.kind
+                || next?.pipeOffsets != previous?.pipeOffsets else { return nil }
+        // Both blocks have to be redrawn: the one that stops being provisional and the one that starts.
+        var changed: Set<BlockID> = []
+        var range = NSRange(location: current.text.utf16.count, length: 0)
+        for block in [previous?.id, next?.id].compactMap({ $0 }).compactMap({ id in current.blocks.first(where: { $0.id == id }) }) {
+            changed.insert(block.id)
+            range = range.length == 0 ? block.range : NSUnionRange(range, block.range)
+        }
+        return Snapshot(version: version, text: current.text, blocks: current.blocks, headings: current.headings,
+                        referenceDefinitions: current.referenceDefinitions, changedBlockIDs: changed,
+                        removedBlockIDs: [], changedRange: range, provisional: next)
+    }
+
+    private func publish(_ snapshot: Snapshot) -> Snapshot {
         current = snapshot
         for stream in inbox.withLock({ Array($0.streams.values) }) { stream.yield(snapshot) }
         var remaining: [(version: TextVersion, continuation: CheckedContinuation<Snapshot, Never>)] = []
@@ -99,11 +148,12 @@ public actor MarkdownDocument {
             if waiter.version <= snapshot.version { waiter.continuation.resume(returning: snapshot) } else { remaining.append(waiter) }
         }
         waiters = remaining
+        return snapshot
     }
 
     // MARK: Incremental reparse
 
-    private func process(_ edits: [TextEdit], version: TextVersion) -> Snapshot {
+    private func process(_ edits: [TextEdit], caret: Int?, version: TextVersion) -> Snapshot {
         let oldLineCount = source.lineCount
         let oldStarts = source.lineStarts
 
@@ -111,15 +161,16 @@ public actor MarkdownDocument {
         var start = Int.max
         var end = Int.min
         var delta = 0
-        // The caret sits where the last edit left it, which is the only word the parser gets about it.
-        var caret = 0
+        // Where the caret sits: the end of the last edit, unless a caret move said otherwise more recently.
+        var caret: Int? = caret
+        var caretFromEdits = 0
         for edit in edits {
             let location = min(max(edit.range.location, 0), source.units.count)
             let length = min(max(edit.range.length, 0), source.units.count - location)
             let replacement = Array(edit.replacement.utf16)
             source.units.replaceSubrange(location..<(location + length), with: replacement)
             let inserted = replacement.count
-            caret = min(location + inserted, source.units.count)
+            caretFromEdits = min(location + inserted, source.units.count)
             if start == Int.max {
                 start = location
                 end = location + inserted
@@ -130,6 +181,7 @@ public actor MarkdownDocument {
             }
             delta += inserted - length
         }
+        if caret == nil { caret = caretFromEdits }
         let oldEnd = end - delta
 
         // Rebuild the line table for the touched lines and shift the rest.

@@ -272,3 +272,100 @@ final class ProvisionalTests: XCTestCase {
         XCTAssertNil(snapshot.provisional)
     }
 }
+
+/// Issue 4: the caret reaches the parser whether or not the user typed, so leaving an ambiguous block by clicking
+/// or by arrow key clears it, and entering one shows it.
+final class ProvisionalCaretTests: XCTestCase {
+    private var document: MarkdownDocument!
+
+    private func open(_ text: String) {
+        document = MarkdownDocument(text: text)
+    }
+
+    /// Moves the caret to `offset`, returning the snapshot the parser published, or nil when it published nothing
+    /// because the kind to show did not change.
+    private func caret(to offset: Int) async -> Snapshot? {
+        await document.caretMoved(to: offset)
+    }
+
+    // Turns red if moving the caret out of a half-typed table leaves it on screen.
+    func testCaretLeavingAnAmbiguousBlockClearsIt() async {
+        open("| a | b |\n\nplain")
+        // The caret starts in the table row, which the first snapshot holds provisionally.
+        let held = await caret(to: 4)
+        XCTAssertEqual(held?.provisional?.kind, .table)
+        let table = held?.blocks[0]
+        let after = await caret(to: (held!.text as NSString).range(of: "plain").location)
+        XCTAssertNil(after?.provisional)
+        // The block that stopped being provisional is re-rendered, so the page patches it back to a paragraph.
+        XCTAssertEqual(after?.changedBlockIDs, Set([table!.id]))
+        XCTAssertEqual(after?.blocks[0].kind, .paragraph)
+        // Nothing about the text changed.
+        XCTAssertEqual(after?.text, held?.text)
+    }
+
+    // Turns red if moving the caret into a half-typed table does not show it.
+    func testCaretEnteringAnAmbiguousBlockShowsIt() async {
+        open("| a | b |\n\nplain")
+        let after = await caret(to: 4)
+        XCTAssertEqual(after?.provisional?.kind, .table)
+        XCTAssertEqual(after?.changedBlockIDs, Set([after!.blocks[0].id]))
+    }
+
+    // Turns red if a caret move between two settled blocks publishes a snapshot, which would re-render on every
+    // arrow key.
+    func testCaretMoveBetweenSettledBlocksPublishesNothing() async {
+        open("| a | b |\n|---|---|\n\nplain\n\nmore")
+        // The table is settled, so the caret moving into it publishes nothing either.
+        let intoTable = await caret(to: 4)
+        XCTAssertNil(intoTable)
+        let text = (await document.currentSnapshot()).text as NSString
+        let plain = text.range(of: "plain").location
+        let more = text.range(of: "more").location
+        let toFirst = await caret(to: plain)
+        XCTAssertNil(toFirst, "caret at the first paragraph")
+        let toSecond = await caret(to: more)
+        XCTAssertNil(toSecond, "caret at the second paragraph")
+        let toTop = await caret(to: 0)
+        XCTAssertNil(toTop, "caret at the top")
+    }
+
+    // Turns red if a round trip out of an ambiguous block and back leaves it stale.
+    func testCaretRoundTripRestoresTheTable() async {
+        open("| a | b |\n\nplain")
+        let text = (await document.currentSnapshot()).text as NSString
+        _ = await caret(to: 4)
+        let away = await caret(to: text.range(of: "plain").location)
+        XCTAssertNil(away?.provisional)
+        let back = await caret(to: 4)
+        XCTAssertEqual(back?.provisional?.kind, .table)
+    }
+
+    // Turns red if an edit after a caret move forgets where the caret was.
+    func testEditAfterCaretMoveKeepsTheCaret() async {
+        open("plain")
+        // The caret is in the paragraph, which is not ambiguous, so nothing is published for the move itself.
+        let moved = await caret(to: 0)
+        XCTAssertNil(moved)
+        // Typing a table row at the caret has to show it as a table, because the caret is inside it.
+        let version = document.apply(TextEdit(range: NSRange(location: 0, length: 0), replacement: "| a | b |\n\n"))
+        let snapshot = await document.snapshot(atLeast: version)
+        XCTAssertEqual(snapshot.blocks[0].kind, .paragraph)
+        XCTAssertEqual(snapshot.provisional?.kind, .table)
+        XCTAssertEqual(snapshot.provisional?.id, snapshot.blocks[0].id)
+    }
+
+    // Turns red if a caret move after an edit loses the edit's provisional classification, or disturbs its text.
+    func testCaretMoveAfterAnEditKeepsTheEdit() async {
+        open("| a | b |\n\nplain")
+        // Typing inside the row leaves the caret inside it, so the edit's own snapshot holds it provisionally.
+        let version = document.apply(TextEdit(range: NSRange(location: 4, length: 0), replacement: "x"))
+        let typed = await document.snapshot(atLeast: version)
+        XCTAssertEqual(typed.provisional?.kind, .table)
+        // Moving the caret into the paragraph below must clear it without disturbing the table row's text.
+        let after = await caret(to: (typed.text as NSString).range(of: "plain").location)
+        XCTAssertNil(after?.provisional)
+        XCTAssertEqual(after?.text, typed.text)
+        XCTAssertEqual(after?.blocks.count, typed.blocks.count)
+    }
+}

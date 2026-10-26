@@ -111,4 +111,47 @@ final class PreviewControllerTests: XCTestCase {
         XCTAssertTrue(patch.html.contains("<p data-block=\"\(table.id.rawValue)\""), patch.html)
         XCTAssertFalse(patch.html.contains("<table"), patch.html)
     }
+
+    // Turns red if leaving a half-typed table by moving the caret without typing leaves its `<table>` on screen
+    // (issue 4). The caret reaches the parser on a move as well as on an edit.
+    func testCaretMoveWithoutTypingClearsTheTable() async {
+        let (controller, page, document) = await makeController("one\n\n| a | b |\n\nthree")
+        let block = controller.snapshot!.blocks[1]
+        // The caret moves into the table row: nothing was typed, so this is the only thing that publishes.
+        await document.caretMoved(to: block.range.location + 1)
+        await waitForMessages(page)
+        withExtendedLifetime(controller) {}
+        XCTAssertTrue(page.updates.last?.patches.contains { $0.html.contains("<table") } == true, "\(page.messages)")
+        page.messages.removeAll()
+
+        // Now the caret moves to the paragraph below, again without typing.
+        let three = controller.snapshot!.blocks[2]
+        await document.caretMoved(to: three.range.location)
+        await waitForMessages(page)
+        withExtendedLifetime(controller) {}
+        guard let patch = page.updates.last?.patches.first(where: { $0.id == String(block.id.rawValue) }) else {
+            return XCTFail("the block that stopped being provisional was never patched: \(page.messages)")
+        }
+        XCTAssertTrue(patch.html.contains("<p data-block=\"\(block.id.rawValue)\""), patch.html)
+        XCTAssertFalse(patch.html.contains("<table"), patch.html)
+        // One patch for the one block that changed: no full document replace, no removals.
+        XCTAssertEqual(page.updates.last?.removals, [])
+        XCTAssertEqual(page.updates.last?.patches.count, 1)
+    }
+
+    // Turns red if a caret move between two settled blocks re-renders anything, which would make arrow keys costly.
+    func testCaretMoveBetweenSettledBlocksSendsNothing() async {
+        let (controller, page, document) = await makeController("| a | b |\n|---|---|\n\nplain\n\nmore")
+        let snapshot = controller.snapshot!
+        let plain = snapshot.block(at: (snapshot.text as NSString).range(of: "plain").location)!
+        let more = snapshot.block(at: (snapshot.text as NSString).range(of: "more").location)!
+        await document.caretMoved(to: plain.range.location)
+        await waitForMessages(page)
+        withExtendedLifetime(controller) {}
+        XCTAssertEqual(page.messages.count, 0, "\(page.messages)")
+        await document.caretMoved(to: more.range.location)
+        await waitForMessages(page)
+        withExtendedLifetime(controller) {}
+        XCTAssertEqual(page.messages.count, 0, "\(page.messages)")
+    }
 }

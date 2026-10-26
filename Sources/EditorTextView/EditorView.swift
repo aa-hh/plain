@@ -191,6 +191,12 @@ public struct EditorView: NSViewRepresentable {
             controller.update(from: editor)
             editor.document.selectedRanges = editor.allSelections
             editor.document.scrollOffset = editor.enclosingScrollView?.contentView.bounds.minY ?? 0
+            // The caret reaches the parser on a move as well as on an edit, so leaving a half-typed table clears
+            // it (issue 4). Fire and forget: the parser publishes only when the kind to show actually changes.
+            if let caret = editor.allSelections.first?.location {
+                let markdown = editor.markdown
+                Task { await markdown.caretMoved(to: caret) }
+            }
         }
         editor.lineBreakObserver = { controller.onLineBreakInserted?() }
         controller.applyPending(to: editor)
