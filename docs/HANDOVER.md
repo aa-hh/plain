@@ -4,7 +4,7 @@ State on 26 October 2026, main at 69fb5fc. Read `AGENTS.md` first; its rules bin
 
 ## What Plain is
 
-A native macOS 27 Markdown editor (SwiftUI, AppKit for the text view, windows and menus), rebuilt from the behaviour of Caret Beta 4.0.0-rc23, an Electron app. Caret's business parts (licence, purchase, analytics, updater, crash upload, Windows and Linux) are deliberately left out.
+A native macOS Markdown editor (macOS 26 and later) (SwiftUI, AppKit for the text view, windows and menus), rebuilt from the behaviour of Caret Beta 4.0.0-rc23, an Electron app. Caret's business parts (licence, purchase, analytics, updater, crash upload, Windows and Linux) are deliberately left out.
 
 ## Where things are
 
