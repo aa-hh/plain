@@ -23,8 +23,7 @@ public struct WindowLayout: Equatable, Sendable {
 
     /// `columnWidth` is the full column (`lineWidth` × width of "a"); it shrinks to the area minus 160 when needed.
     public static func compute(windowWidth: CGFloat, screenWidth: CGFloat, sidebar: Bool, preview: PreviewMode,
-                               columnWidth: CGFloat) -> WindowLayout {
-        let sidebarWidth = Tokens.sidebarWidth
+                               columnWidth: CGFloat, sidebarWidth: CGFloat = Tokens.sidebarWidth) -> WindowLayout {
         let previewWidth: CGFloat = preview == .split ? (windowWidth / 2 - (sidebar ? sidebarWidth / 2 : 0)) : 0
         let needed = 722 + sidebarWidth + previewWidth
         let free = screenWidth - needed
@@ -62,7 +61,7 @@ public struct WindowView: View {
             let size = proxy.size
             let layout = WindowLayout.compute(
                 windowWidth: size.width, screenWidth: model.screenWidth, sidebar: model.sidebarVisible,
-                preview: model.previewMode, columnWidth: columnWidth)
+                preview: model.previewMode, columnWidth: columnWidth, sidebarWidth: model.sidebar.width)
             let strip = Tokens.tabStripHeight
             ZStack(alignment: .topLeading) {
                 Color(nsColor: Tokens.material)
@@ -87,7 +86,7 @@ public struct WindowView: View {
 
                 if model.sidebarVisible {
                     sidebarView(compact: layout.compact)
-                        .frame(width: Tokens.sidebarWidth, height: max(size.height - strip, 0))
+                        .frame(width: model.sidebar.width, height: max(size.height - strip, 0))
                         .offset(y: strip)
                 }
 
@@ -150,28 +149,37 @@ public struct WindowView: View {
         }
     }
 
-    @ViewBuilder private func sidebarView(compact: Bool) -> some View {
+    /// The sidebar's sections (docs/navigation-spec.md, The sidebar).
+    private func sidebarView(compact: Bool) -> some View {
         @Bindable var sidebar = model.sidebar
-        switch sidebar.mode {
-        case .files:
-            if let tree = model.tree {
-                FilesSidebar(
-                    root: tree, currentFile: model.currentDocument?.url, gitMarks: model.gitMarks,
-                    expanded: $sidebar.expandedFolders, compact: compact, actions: model.sidebarActions,
-                    focusRequested: $sidebar.filesFocusRequested)
-                .onChange(of: model.sidebar.expandedFolders) {
-                    let sidebar = model.sidebar, store = model.context.store
-                    Task { try? await sidebar.saveExpansion(to: store) }
+        let pinned = model.pinnedFiles, recent = model.recentFiles
+        let current = model.currentDocument?.url
+        return Sidebar(
+            sections: model.context.sidebarSections.items, titles: model.sidebarTitles(pinned: pinned, recent: recent),
+            pinnedCount: pinned.count, recentCount: recent.count, width: sidebar.width, compact: compact,
+            actions: model.sidebarSectionActions
+        ) { kind in
+            switch kind {
+            case .pinned:
+                FileListSection(files: pinned, currentFile: current, gitMarks: model.gitMarks, isPinned: true, actions: model.fileListActions)
+            case .recent:
+                FileListSection(files: recent, currentFile: current, gitMarks: model.gitMarks, isPinned: false, actions: model.fileListActions)
+            case .files:
+                if let tree = model.tree {
+                    FilesSidebar(
+                        root: tree, currentFile: current, gitMarks: model.gitMarks, expanded: $sidebar.expandedFolders,
+                        actions: model.sidebarActions, focusRequested: $sidebar.filesFocusRequested)
+                    .onChange(of: model.sidebar.expandedFolders) {
+                        let sidebar = model.sidebar, store = model.context.store
+                        Task { try? await sidebar.saveExpansion(to: store) }
+                    }
                 }
-            } else {
-                Color.clear
+            case .outline:
+                OutlineSidebar(
+                    headings: model.snapshot?.headings ?? [], caretOffset: model.editor.selectedRanges.first?.location ?? 0,
+                    changedHeadings: model.changedHeadings, focusRequested: $sidebar.outlineFocusRequested,
+                    onJump: { heading, focus in model.jump(to: heading, focus: focus) })
             }
-        case .outline:
-            OutlineSidebar(
-                headings: model.snapshot?.headings ?? [], caretOffset: model.editor.selectedRanges.first?.location ?? 0,
-                changedHeadings: model.changedHeadings, onJump: { heading, focus in model.jump(to: heading, focus: focus) })
-        case .none:
-            EmptyView()
         }
     }
 
@@ -190,7 +198,10 @@ public struct WindowView: View {
                     }
                 },
                 revertToBackup: { model.revertToBackup($0) },
-                toggleZoom: { model.window?.zoom(nil) }),
+                toggleZoom: { model.window?.zoom(nil) },
+                goBack: { model.goBack(steps: $0) },
+                goForward: { model.goForward(steps: $0) },
+                pin: { id in if let url = model.tabs.items.first(where: { $0.id == id })?.document.url { model.pin(url) } }),
             showsEditedMark: { model.showsEditedMark($0) })
         .background(WindowDragArea())
     }
@@ -202,7 +213,7 @@ public struct WindowView: View {
             GoToFilePopup(
                 recents: model.recentURLs, allFiles: model.allFiles, gitMarks: model.gitMarks,
                 query: $popup.filter, selection: $popup.selection,
-                onOpen: { url in model.closePopup(); model.open(url) }, onCancel: { model.closePopup() })
+                onOpen: { url, newTab in model.closePopup(); model.open(url, newTab: newTab) }, onCancel: { model.closePopup() })
         case .headings:
             GoToHeadingPopup(
                 headings: model.snapshot?.headings ?? [], query: $popup.filter, selection: $popup.selection,
@@ -230,7 +241,7 @@ public struct WindowView: View {
             if let folder = model.folder {
                 FindInFolderPopup(
                     folder: folder, hits: model.searchHits, query: $popup.filter, selection: $popup.selection,
-                    onPick: { model.openHit($0) }, onCancel: { model.closePopup() })
+                    onPick: { model.openHit($0, newTab: $1) }, onCancel: { model.closePopup() })
                 .onChange(of: model.popup.filter) { _, query in model.runSearch(query) }
             }
         case nil:

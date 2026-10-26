@@ -67,6 +67,8 @@ public struct PopupCard<Row: View>: View {
     /// Shown as a disabled row when there are no rows and the filter is not empty (or there is no filter).
     let emptyText: String
     let onPick: (Int) -> Void
+    /// Cmd+Return and Option+click, for popups that open files: the pick opens in a new tab (docs/navigation-spec.md).
+    let onPickInNewTab: ((Int) -> Void)?
     let onCancel: () -> Void
     let row: (Int) -> Row
 
@@ -76,7 +78,8 @@ public struct PopupCard<Row: View>: View {
     public init(
         placeholder: String, filter: Binding<String>?, selection: Binding<Int>, rowCount: Int,
         dividerAfter: Int? = nil, emptyText: String = "not found",
-        onPick: @escaping (Int) -> Void, onCancel: @escaping () -> Void, @ViewBuilder row: @escaping (Int) -> Row
+        onPick: @escaping (Int) -> Void, onPickInNewTab: ((Int) -> Void)? = nil, onCancel: @escaping () -> Void,
+        @ViewBuilder row: @escaping (Int) -> Row
     ) {
         self.placeholder = placeholder
         self.filter = filter
@@ -85,6 +88,7 @@ public struct PopupCard<Row: View>: View {
         self.dividerAfter = dividerAfter
         self.emptyText = emptyText
         self.onPick = onPick
+        self.onPickInNewTab = onPickInNewTab
         self.onCancel = onCancel
         self.row = row
     }
@@ -150,7 +154,10 @@ public struct PopupCard<Row: View>: View {
                             .padding(.horizontal, Tokens.rowPadding)
                             .background(index == selection ? selectedColor : .clear)
                             .contentShape(Rectangle())
-                            .onTapGesture { selection = index; onPick(index) }
+                            .onTapGesture {
+                                selection = index
+                                if let onPickInNewTab, NSEvent.modifierFlags.contains(.option) { onPickInNewTab(index) } else { onPick(index) }
+                            }
                             .id(index)
                         if index == dividerAfter {
                             Rectangle().fill(Color.materialLine).frame(height: 1)
@@ -177,7 +184,11 @@ public struct PopupCard<Row: View>: View {
         case KeyEquivalent("p") where ctrl: move(-1)
         case .return, .rightArrow:
             guard rowCount > 0 else { return .handled }
-            onPick(selection)
+            if let onPickInNewTab, press.key == .return, press.modifiers.contains(.command) {
+                onPickInNewTab(selection)
+            } else {
+                onPick(selection)
+            }
         case .escape: onCancel()
         default: return .ignored
         }

@@ -68,9 +68,9 @@ Each tab keeps a back list and a forward list of file paths, up to 50 each; the 
 
 ### The arrows
 
-`←` and `→` sit at the left of the tab strip, at the 80 pt mark where the first tab starts today; tabs move right to make room.
+`←` and `→` sit at the left of the tab strip, at the 80 pt mark. The tabs stay centred: the strip keeps the arrows' width free on the right too.
 
-- 13 pt UI font, each 24 pt wide and 30 pt tall (a tab's height), 10 pt before the first tab.
+- 13 pt UI font, each 24 pt wide and 30 pt tall (a tab's height), with at least 10 pt before the first tab.
 - Tertiary text, like tabs that are not current. An arrow with an empty list is not drawn, but its space stays, so tabs never shift.
 - Tooltip: "Back to notes.md (⌘[)" and "Forward to plan.md (⌘])".
 - Right-click an arrow: a menu of that list's files, newest first, up to 15. Picking one moves that many steps.
@@ -84,8 +84,8 @@ One sidebar replaces the Files and Outline sidebars. It holds four sections, in 
 |---|---|---|
 | Pinned | "Pinned" | Files you pinned in this folder, in your order. Up to 10 rows show, then the section scrolls. Not drawn while empty or with no folder. |
 | Recent | "Recent" | The 6 most recently opened files of this folder (the 40-file list Plain already keeps, spec 810), newest first, without the current tab's file and without files that no longer exist. Not drawn while empty. |
-| Files | The folder's name | Today's Files tree, unchanged: filter, keys, rename, drag, Git marks. Not drawn with no folder. |
-| Outline | "Outline" | Today's Outline: filter, current heading, Git change marks. With no headings, one row "No headings" in tertiary text. |
+| Files | The folder's name | Today's Files tree: keys, rename, drag, Git marks. The filter row shows only while in use: typing a letter in the tree starts it. Not drawn with no folder. |
+| Outline | "Outline" | Today's Outline: current heading, Git change marks. The filter row shows only while in use: Show Outline opens it. With no headings, one row "No headings" in tertiary text. |
 
 Pinned and Recent rows look like files in the tree: 16 pt pixel icon, name with the extension in tertiary text, Git mark, 20 pt side padding, no indent, middle truncation. The current file gets the `selection-neutral` tint the tree already uses.
 
@@ -147,7 +147,7 @@ Show Files and Show Outline stop being a radio group. Their ids stay, so shortcu
 | Module | Change |
 |---|---|
 | `PlainCore` | `Tokens`: `sidebarMinWidth` 160, `sidebarMaxWidth` 400, `sidebarCloseWidth` 120, `sidebarSectionGap` 12; `sidebarWidth` 200 stays as the default. `CommandTable`: Back and Forward; Show None becomes the Show Sidebar checkbox; Show Files and Show Outline become plain actions. |
-| `PlainShell` | `ShellModels.swift`: `TabItem.document` becomes `var`; `TabItem` gains `history: TabHistory`, a value type with `push`, `back(steps:)`, `forward(steps:)`, `rename(from:to:)`, `remove(under:)` and the 50-entry cap. `SidebarState` loses `mode` and `lastVisible`, gains `visible`, `width` and `sections` (kind, folded, hidden, in order), and loads the old `sidebar-wN` value. New `Sidebar.swift` stacks the sections, sized by a pure `SidebarLayout.heights(…)`, with the resize edge. New `FileListSection.swift` draws Pinned and Recent from `FileIcon` and `GitMarkLabel`. `FilesSidebar` and `OutlineSidebar` keep their bodies and become sections. `TabBar` gains the arrows, the two list menus, "Pin in Sidebar", and `goBack(steps:)` and `goForward(steps:)` in `TabBarActions`. `PopupCard.onPick` gains `newTab` (Cmd+Return, Option+click). |
+| `PlainShell` | `ShellModels.swift`: `TabItem.document` becomes `var`; `TabItem` gains `history: TabHistory`, a value type with `push`, `back(steps:)`, `forward(steps:)`, `rename(from:to:)`, `remove(under:)` and the 50-entry cap. `SidebarState` loses `mode` and `lastVisible`, gains `visible`, `width` and `sections` (kind, folded, hidden, in order), and loads the old `sidebar-wN` value. New `Sidebar.swift` stacks the sections, sized by a pure `SidebarLayout.heights(…)`, with the resize edge. New `FileListSection.swift` draws Pinned and Recent from `FileIcon` and `GitMarkLabel`. `FilesSidebar` and `OutlineSidebar` keep their bodies and become sections. `TabBar` gains the arrows, the two list menus, "Pin in Sidebar", and `goBack(steps:)` and `goForward(steps:)` in `TabBarActions`. `PopupCard` gains an optional `onPickInNewTab` (Cmd+Return, Option+click), passed by Go to File and Find in Folder. |
 | `EditorTextView` | `EditorActions.openPath` becomes `(URL, _ newTab: Bool)`. `clickedLink` accepts Cmd and Cmd+Option; the link pointer shows for both. |
 | `PreviewRenderer` | The page's `link` message carries `newTab` (Option held), and an `auxclick` listener sends middle-clicks the same way. `onLink` and `PreviewController.openPath` become `(String, Bool)`. |
 | `PlainAppKit` | `WindowModel`: `open(_:newTab:)` and `openLink(_:newTab:)` replace today's versions; the four rules live in a pure `Placement.decide(…)` beside `OpenTarget` under "Rules kept apart from the window"; the leaving steps `activate` runs today become one `leaveCurrent()` used by both; `goBack(steps:)` and `goForward(steps:)`; `fileMoved` and `closeTabs(under:)` also update histories and pins; `sidebarActions.open` passes `newTab` on (today it drops it); `minimumWidth` takes the sidebar width. `TabMemory` gains `history`, decoded only when present so older `tabs-wN` files still load. `AppContext` holds the pins, shared by every window. `WindowView`: `WindowLayout.compute` takes the sidebar width instead of reading `Tokens.sidebarWidth`; the sidebar view becomes `Sidebar`. A local event monitor maps mouse buttons 3 and 4 to Back and Forward. |

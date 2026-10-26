@@ -92,12 +92,15 @@ public struct FilesSidebarActions {
     public var paste: (_ folder: URL) -> Void
     public var revealInFinder: ([URL]) -> Void
     public var focusEditor: () -> Void
+    /// Pin in the sidebar's Pinned section.
+    public var pin: (URL) -> Void
 
     public init(
         open: @escaping (URL, Bool) -> Void, createFile: @escaping (URL, String) throws -> Void,
         createFolder: @escaping (URL, String) throws -> Void, rename: @escaping (URL, String) throws -> Void,
         trash: @escaping ([URL]) -> Void, copy: @escaping ([URL]) -> Void, cut: @escaping ([URL]) -> Void,
-        paste: @escaping (URL) -> Void, revealInFinder: @escaping ([URL]) -> Void, focusEditor: @escaping () -> Void
+        paste: @escaping (URL) -> Void, revealInFinder: @escaping ([URL]) -> Void, focusEditor: @escaping () -> Void,
+        pin: @escaping (URL) -> Void = { _ in }
     ) {
         self.open = open
         self.createFile = createFile
@@ -109,18 +112,17 @@ public struct FilesSidebarActions {
         self.paste = paste
         self.revealInFinder = revealInFinder
         self.focusEditor = focusEditor
+        self.pin = pin
     }
 }
 
-/// The Files sidebar: a filter header with the folder name as placeholder, then the folder tree.
+/// The sidebar's Files section: a filter row with the folder name as placeholder, then the folder tree.
 /// Folders show their children only while expanded; `expanded` is kept by `SidebarState`.
 public struct FilesSidebar: View {
     let root: FolderNode
     let currentFile: URL?
     let gitMarks: [URL: GitMark]
     @Binding var expanded: Set<URL>
-    /// Draws the 1 pt right edge (compact or narrow window).
-    let compact: Bool
     let actions: FilesSidebarActions
 
     private enum InlineEdit: Equatable {
@@ -135,6 +137,7 @@ public struct FilesSidebar: View {
     }
 
     @State private var query = ""
+    @State private var filterSelection: TextSelection?
     @State private var selected = Set<URL>()
     @State private var cursor: URL?
     @State private var anchor: URL?
@@ -152,13 +155,12 @@ public struct FilesSidebar: View {
 
     public init(
         root: FolderNode, currentFile: URL?, gitMarks: [URL: GitMark], expanded: Binding<Set<URL>>,
-        compact: Bool, actions: FilesSidebarActions, focusRequested: Binding<Bool> = .constant(false)
+        actions: FilesSidebarActions, focusRequested: Binding<Bool> = .constant(false)
     ) {
         self.root = root
         self.currentFile = currentFile
         self.gitMarks = gitMarks
         self._expanded = expanded
-        self.compact = compact
         self.actions = actions
         self._focusRequested = focusRequested
     }
@@ -184,15 +186,18 @@ public struct FilesSidebar: View {
     public var body: some View {
         let rows = Self.visibleRows(root: root, expanded: expanded, query: query)
         VStack(spacing: 0) {
-            TextField("", text: $query, prompt: focus == .filter ? Text(root.name).foregroundStyle(Color.tertiaryText) : nil)
-                .textFieldStyle(.plain)
-                .font(uiFont)
-                .foregroundStyle(Color.textColor)
-                .help(root.url.path)
-                .focused($focus, equals: .filter)
-                .onKeyPress(phases: .down) { handleFilterKey($0, rows: rows) }
-                .padding(.horizontal, Tokens.rowPadding)
-                .frame(height: Tokens.line * 2)
+            // The filter row shows only while it is in use; typing in the list starts it.
+            if focus == .filter || !query.isEmpty {
+                TextField("", text: $query, selection: $filterSelection, prompt: Text(root.name).foregroundStyle(Color.tertiaryText))
+                    .textFieldStyle(.plain)
+                    .font(uiFont)
+                    .foregroundStyle(Color.textColor)
+                    .help(root.url.path)
+                    .focused($focus, equals: .filter)
+                    .onKeyPress(phases: .down) { handleFilterKey($0, rows: rows) }
+                    .padding(.horizontal, Tokens.rowPadding)
+                    .frame(height: Tokens.line)
+            }
             ScrollViewReader { proxy in
                 ScrollView(.vertical, showsIndicators: false) {
                     LazyVStack(spacing: 0) {
@@ -219,11 +224,6 @@ public struct FilesSidebar: View {
             guard focusRequested else { return }
             focus = .list
             focusRequested = false
-        }
-        .frame(width: Tokens.sidebarWidth)
-        .background(Color.material)
-        .overlay(alignment: .trailing) {
-            if compact { Rectangle().fill(Color.materialLine).frame(width: 1) }
         }
         .confirmationDialog(trashTitle, isPresented: Binding(get: { !pendingTrash.isEmpty }, set: { if !$0 { pendingTrash = [] } })) {
             Button("Move to Trash", role: .destructive) { actions.trash(pendingTrash); pendingTrash = [] }
@@ -262,6 +262,7 @@ public struct FilesSidebar: View {
         .background(rowBackground(node.url))
         .contentShape(Rectangle())
         .onTapGesture { click(node, rows: rows) }
+        .overlay { if !isFolder { MiddleClickCatcher { actions.open(node.url, true) } } }
         .onDrag { NSItemProvider(object: node.url as NSURL) }
         .contextMenu { itemMenu(for: node) }
     }
@@ -308,6 +309,7 @@ public struct FilesSidebar: View {
         if targets.count == 1 { Button("Rename") { startRename(node.url) } }
         Button("Delete") { pendingTrash = targets }
         Divider()
+        if node.kind != .folder { Button("Pin") { actions.pin(node.url) } }
         Button("Show in Finder") { actions.revealInFinder(targets) }
     }
 
@@ -468,7 +470,12 @@ public struct FilesSidebar: View {
         case .escape, .tab:
             if query.isEmpty { actions.focusEditor() } else { query = "" }
         default:
-            return .ignored
+            guard !cmd, !ctrl, press.characters.count == 1, let character = press.characters.first,
+                  character.isLetter || character.isNumber || character.isPunctuation || character.isSymbol else { return .ignored }
+            query.append(character)
+            filterSelection = TextSelection(insertionPoint: query.endIndex)
+            // The filter row appears with this update; focus moves once it exists.
+            DispatchQueue.main.async { focus = .filter }
         }
         return .handled
     }

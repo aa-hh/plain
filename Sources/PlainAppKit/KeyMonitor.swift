@@ -8,6 +8,7 @@ import PlainCore
 public final class KeyMonitor {
     private var keyMonitor: Any?
     private var flagsMonitor: Any?
+    private var mouseMonitor: Any?
     private(set) var table: [Shortcut: String] = [:]
     /// The window model for an event's window; nil for windows Plain does not own (panels, alerts).
     private let modelFor: (NSWindow?) -> WindowModel?
@@ -39,13 +40,27 @@ public final class KeyMonitor {
             MainActor.assumeIsolated { self?.modelFor(event.window)?.modifierFlags.send(event.modifierFlags) }
             return event
         }
+        // The mouse's back and forward buttons (docs/navigation-spec.md, Back and forward).
+        mouseMonitor = NSEvent.addLocalMonitorForEvents(matching: .otherMouseUp) { [weak self] event in
+            nonisolated(unsafe) let event = event
+            let used = MainActor.assumeIsolated { () -> Bool in
+                guard let self, let id = Self.mouseCommands[event.buttonNumber], let model = self.modelFor(event.window) else { return false }
+                self.run(id, model)
+                return true
+            }
+            return used ? nil : event
+        }
     }
+
+    static let mouseCommands: [Int: String] = [3: "window:go-back", 4: "window:go-forward"]
 
     public func stop() {
         if let keyMonitor { NSEvent.removeMonitor(keyMonitor) }
         if let flagsMonitor { NSEvent.removeMonitor(flagsMonitor) }
+        if let mouseMonitor { NSEvent.removeMonitor(mouseMonitor) }
         keyMonitor = nil
         flagsMonitor = nil
+        mouseMonitor = nil
     }
 
     /// Returns nil when the event was used up.

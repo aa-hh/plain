@@ -1,6 +1,7 @@
 import AppKit
 import PlainCore
 import PlainDocument
+import PlainShell
 import PreviewRenderer
 
 /// State shared by every window: preferences, shortcuts, history files and the app's folders. The app delegate makes
@@ -23,6 +24,9 @@ public final class AppContext {
     public var commandHistory: [String] = []
     public var themeURL: URL?
     public var themeFiles: [ThemeFile] = []
+    /// The sidebar's sections and the pinned files, the same in every window (docs/navigation-spec.md).
+    public let sidebarSections = SidebarSections()
+    public let pins = Pins()
     /// The open window models, for changes every window must hear about.
     var windows: () -> [WindowModel] = { [] }
     var commandsChanged: ([Command]) -> Void = { _ in }
@@ -58,6 +62,8 @@ public final class AppContext {
         commands = Shortcuts.overriding(Shortcuts.decode(stored), in: Command.all)
         recentFolders = (await store.load(Self.foldersName, as: [String].self) ?? []).map { URL(fileURLWithPath: $0, isDirectory: true) }
         commandHistory = await store.load(CommandDispatcher.historyName, as: [String].self) ?? []
+        await sidebarSections.load(from: store)
+        await pins.load(from: store)
         try? themes.writeBuiltIns()
         themeFiles = themes.list()
         themeURL = await themes.startupTheme()

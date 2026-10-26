@@ -114,7 +114,7 @@ extension EditorTextView {
             if FileManager.default.fileExists(atPath: url.path) {
                 if OpenableFiles.isOpenable(url) {
                     let title = link.isReference ? "Open " + url.lastPathComponent : "Open File"
-                    items.append(ContextItem(title: title) { [weak self] in self?.actions.openPath(url) })
+                    items.append(ContextItem(title: title) { [weak self] in self?.actions.openPath(url, false) })
                 }
                 items.append(ContextItem(title: "Show in Finder") { [weak self] in self?.actions.revealInFinder(url) })
                 if let folder = actions.folderURL(), url.standardizedFileURL.path.hasPrefix(folder.standardizedFileURL.path + "/") {

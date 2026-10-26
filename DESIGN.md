@@ -75,6 +75,9 @@ spacing:
   editor-bottom: "96px"
   tab-strip: "48px"
   sidebar: "200px"
+  sidebar-min: "160px"
+  sidebar-max: "400px"
+  sidebar-section-gap: "12px"
   popup: "360px"
 components:
   popup-card:
@@ -183,7 +186,7 @@ Everything snaps to a 24 pt line (`line`). Popup rows, sidebar rows and editor l
 
 - **Window:** a 48 pt tab strip on top, then the editor. The strip has 80 pt side padding to match the editor, and the window drags by its empty area.
 - **Editor:** 48 pt above the text, 96 pt below, 80 pt at the sides, one centred column.
-- **Sidebars:** 200 pt wide, rows padded 20 pt at the sides, 16 pt indent per folder or heading level.
+- **Sidebar:** 200 pt wide by default, dragged between 160 and 400 pt; 12 pt between sections; rows padded 20 pt at the sides, 16 pt indent per folder or heading level.
 - **Popups:** 360 pt wide cards: a 72 pt filter row, up to 16 rows of 24 pt, then 12 pt of space under the last row.
 - **Preview:** a web page with its own theme (Default, GitHub, Dark in `Tokens.previewThemes`); Default keeps a 626 px column with 80 px side padding.
 
@@ -218,8 +221,19 @@ Plain text, no backgrounds.
 - **Colour:** blue for information, red for errors.
 - **Buttons:** bracketed text, `[ Label ]` and `[ × ]`, no button chrome.
 
-### Files sidebar
-- **Rows:** 13 pt on 24 pt, 16 pt indent per level, 16 pt pixel-drawn icons in tertiary text.
+### Back and forward arrows
+- **Style:** `←` and `→` in 13 pt tertiary text at the 80 pt mark on the left of the tab strip, each 24 × 30 pt. The tabs stay centred.
+- **States:** an arrow with nowhere to go is not drawn, but keeps its space so tabs never shift. Right-click lists up to 15 files.
+
+### Sidebar sections
+- **Order:** Pinned, Recent, Files, Outline by default. Pinned and Recent are not drawn while empty.
+- **Header:** 13 pt on 24 pt, 20 pt side padding; secondary text unfolded, tertiary folded; no chevrons. Files shows the folder's name.
+- **Drop spot:** a 1 pt `material-line` rule while a header is dragged.
+- **Heights:** Pinned (up to 10 rows) and Recent (up to 6) take their rows' height; Files and Outline share the rest.
+
+### Files, Pinned and Recent rows
+- **Rows:** 13 pt on 24 pt, 16 pt indent per level in Files, 16 pt pixel-drawn icons in tertiary text.
+- **Current file:** `selection-neutral` behind the row.
 - **Git marks:** `+` added, `~` changed, `D` deleted, `R` renamed, all in tertiary text.
 
 ### Editor

@@ -65,6 +65,32 @@ public enum OpenTarget: Equatable, Sendable {
     }
 }
 
+/// Which tab a file opened in place lands in (docs/navigation-spec.md, "Which tab the file lands in").
+public enum Placement: Equatable, Sendable {
+    /// Rule 1: the file is the current tab's file.
+    case stay
+    /// Rule 2: the file is open in another tab.
+    case switchTo(UUID)
+    /// Rule 3: there is no current tab, or it cannot be left.
+    case newTab
+    /// Rule 4: the current tab shows the file instead.
+    case replace
+
+    /// `tabs` are every open tab's id and standardized path; `canLeave` runs only when rules 1 and 2 do not fit.
+    public static func decide(target: String, currentID: UUID?, tabs: [(id: UUID, path: String)], canLeave: () -> Bool) -> Placement {
+        if let currentID, tabs.contains(where: { $0.id == currentID && $0.path == target }) { return .stay }
+        if let other = tabs.first(where: { $0.path == target && $0.id != currentID }) { return .switchTo(other.id) }
+        guard currentID != nil, canLeave() else { return .newTab }
+        return .replace
+    }
+
+    /// A tab can be left when its file is a saved, ordinary file: not untitled, a settings file or a backup, and
+    /// with no changes left after autosave has been flushed.
+    public static func canLeave(isUntitled: Bool, isPreferences: Bool, isBackup: Bool, isEdited: Bool) -> Bool {
+        !(isUntitled || isPreferences || isBackup || isEdited)
+    }
+}
+
 /// Whether closing a tab asks `"<name>" has changes, do you want to save them?` (spec 747, 869–871).
 public enum ClosePrompt {
     public static func isNeeded(isEdited: Bool, autosave: Bool, isUntitled: Bool, isPreferences: Bool, isBackup: Bool) -> Bool {
@@ -92,12 +118,28 @@ public struct TabMemory: Codable, Equatable, Sendable {
     public var current: Int?
     public var closed: [String]
     public var recents: [RecentFile]
+    /// Each tab's back and forward lists, in the order of `files`.
+    public var history: [TabHistory]
 
-    public init(files: [String] = [], current: Int? = nil, closed: [String] = [], recents: [RecentFile] = []) {
+    public init(files: [String] = [], current: Int? = nil, closed: [String] = [], recents: [RecentFile] = [],
+                history: [TabHistory] = []) {
         self.files = files
         self.current = current
         self.closed = closed
         self.recents = recents
+        self.history = history
+    }
+
+    enum CodingKeys: String, CodingKey { case files, current, closed, recents, history }
+
+    /// Files written before tabs had back and forward lists have no `history`.
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        files = try container.decode([String].self, forKey: .files)
+        current = try container.decodeIfPresent(Int.self, forKey: .current)
+        closed = try container.decodeIfPresent([String].self, forKey: .closed) ?? []
+        recents = try container.decodeIfPresent([RecentFile].self, forKey: .recents) ?? []
+        history = try container.decodeIfPresent([TabHistory].self, forKey: .history) ?? []
     }
 
     /// Stored per window in `state/tabs-w<N>.json`, keyed by folder path ("" for no folder).
@@ -225,7 +267,7 @@ public final class WindowModel {
     public private(set) var markdown: MarkdownDocument?
     @ObservationIgnored private(set) var parsers: [ObjectIdentifier: MarkdownDocument] = [:]
     public private(set) var snapshot: Snapshot? {
-        didSet { if sidebar.mode == .outline { refreshChangedHeadings() } }
+        didSet { if outlineShowing { refreshChangedHeadings() } }
     }
     @ObservationIgnored private var snapshotTask: Task<Void, Never>?
     public private(set) var changedHeadings: Set<BlockID> = []
@@ -259,7 +301,7 @@ public final class WindowModel {
         spellcheck = SpellcheckController(engine: SystemSpellingEngine())
         spellcheck.enabled = context.preferences.bool("spellcheck")
         spellcheck.autocorrect = context.preferences.bool("autoCorrectSpelling")
-        preview.openPath = { [weak self] path in self?.openLink(path) }
+        preview.openPath = { [weak self] path, newTab in self?.openLink(path, newTab: newTab) }
         preview.applyEdit = { [weak self] edit in self?.applyPreviewEdit(edit) }
         editor.onLineBreakInserted = { [weak self] in self?.lineBreakInserted() }
         observers.append(NotificationCenter.default.addObserver(forName: .documentDiskChanged, object: nil, queue: .main) { [weak self] note in
@@ -331,19 +373,55 @@ public final class WindowModel {
 
     func backupTab(_ id: TabItem.ID?) -> BackupTab? { id.flatMap { backupTabs[$0] } }
 
-    /// Minimum window width: 400, doubled with a preview, plus 260 with a sidebar (spec 725, 1431).
-    public static func minimumWidth(sidebarVisible: Bool, previewVisible: Bool) -> CGFloat {
-        WindowController.minimumSize.width * (previewVisible ? 2 : 1) + (sidebarVisible ? 260 : 0)
+    /// Minimum window width: 400, doubled with a preview, plus the sidebar's width and 60 while it shows
+    /// (spec 725, 1431; 260 at the default width).
+    public static func minimumWidth(sidebarWidth: CGFloat?, previewVisible: Bool) -> CGFloat {
+        WindowController.minimumSize.width * (previewVisible ? 2 : 1) + (sidebarWidth.map { $0 + 60 } ?? 0)
     }
 
-    public var sidebarVisible: Bool { sidebar.mode != .none && !interfaceHidden }
+    public var sidebarVisible: Bool { sidebar.visible && !interfaceHidden }
+
+    /// The Outline section is on screen: the sidebar shows and the section is neither hidden nor folded.
+    var outlineShowing: Bool {
+        let outline = context.sidebarSections[.outline]
+        return sidebarVisible && !outline.hidden && !outline.folded
+    }
+
+    /// The Pinned section's files: this folder's pins.
+    public var pinnedFiles: [URL] { context.pins.files(in: folder) }
+
+    /// The Recent section's files: the 6 most recently opened in this folder, without the current tab's file and
+    /// files that no longer exist.
+    public var recentFiles: [URL] {
+        let current = currentDocument?.url?.standardizedFileURL.path
+        var files: [URL] = []
+        for recent in memory.recents where recent.path != current {
+            guard FileManager.default.fileExists(atPath: recent.path) else { continue }
+            files.append(URL(fileURLWithPath: recent.path))
+            if files.count == SidebarLayout.recentRows { break }
+        }
+        return files
+    }
+
+    /// A header for each section with something to show (docs/navigation-spec.md, The sidebar).
+    func sidebarTitles(pinned: [URL], recent: [URL]) -> [SidebarSectionKind: String] {
+        var titles: [SidebarSectionKind: String] = [.outline: SidebarSectionKind.outline.title]
+        if !pinned.isEmpty { titles[.pinned] = SidebarSectionKind.pinned.title }
+        if !recent.isEmpty { titles[.recent] = SidebarSectionKind.recent.title }
+        if let tree { titles[.files] = tree.name }
+        return titles
+    }
 
     // MARK: Restoring
 
     /// Reads this window's folder, sidebar, preview mode and hide-interface state, then opens the folder.
     public func restore() async {
         let store = context.store
-        if let mode = await store.load(Self.sidebarName(id), as: SidebarMode.self) { sidebar.show(mode) }
+        if let saved = await store.load(Self.sidebarName(id), as: SidebarState.Saved.self) {
+            sidebar.apply(saved)
+        } else if let oldMode = await store.load(Self.sidebarName(id), as: String.self) {
+            sidebar.apply(oldMode: oldMode)
+        }
         if let saved = await store.load(Self.previewModeName(id), as: PreviewMode.self) { previewMode = saved }
         editor.isReadOnly = previewMode == .full
         interfaceHidden = await store.load(Self.hideInterfaceName, as: Bool.self) ?? false
@@ -405,9 +483,10 @@ public final class WindowModel {
 
         memory = await TabMemory.load(from: store, window: id, folder: url) ?? TabMemory()
         var opened: [TabItem] = []
-        for path in memory.files {
+        for (position, path) in memory.files.enumerated() {
             if let document = await loadDocument(URL(fileURLWithPath: path)) {
-                opened.append(TabItem(document: document, mark: mark(for: document)))
+                let history = memory.history.indices.contains(position) ? memory.history[position] : TabHistory()
+                opened.append(TabItem(document: document, mark: mark(for: document), history: history))
                 prepare(document)
             }
         }
@@ -463,21 +542,22 @@ public final class WindowModel {
     public func openDropped(_ url: URL) async {
         var isFolder: ObjCBool = false
         guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isFolder) else { return }
-        if isFolder.boolValue { await setFolder(url) } else { open(url) }
+        if isFolder.boolValue { await setFolder(url) } else { open(url, newTab: true) }
     }
 
     // MARK: Opening
 
-    /// Opens a path from a link, the sidebar or a popup by the rules in spec 757–762.
-    public func open(_ url: URL) {
-        openLink(url.isFileURL ? url.path : url.absoluteString)
+    /// Opens a path from a link, the sidebar or a popup by the rules in spec 757–762. A file that opens in a tab goes
+    /// in place, or in a new tab when `newTab` (docs/navigation-spec.md).
+    public func open(_ url: URL, newTab: Bool = false) {
+        openLink(url.isFileURL ? url.path : url.absoluteString, newTab: newTab)
     }
 
-    func openLink(_ path: String) {
+    func openLink(_ path: String, newTab: Bool = false) {
         switch OpenTarget.decide(path) {
         case .tab(let url, let anchor):
             Task {
-                await openInTab(url)
+                if newTab { await openInTab(url) } else { await openInPlace(url) }
                 if let anchor { await scrollToAnchor(anchor, in: url) }
             }
         case .quickLook(let url): showQuickLook(url)
@@ -509,6 +589,91 @@ public final class WindowModel {
         }
         guard let document = await loadDocument(url) else { return }
         insertTab(TabItem(document: document, mark: mark(for: document)))
+    }
+
+    /// Shows a file in the current tab by `Placement`'s rules; the file the tab leaves goes on its back list.
+    public func openInPlace(_ url: URL) async {
+        let url = url.standardizedFileURL
+        switch placement(for: url.path) {
+        case .stay: return
+        case .switchTo(let id): activate(id)
+        case .newTab: await openInTab(url)
+        case .replace:
+            guard let tab = tabs.current, let leaving = Self.path(of: tab.document) else { return }
+            guard let document = await loadDocument(url) else { return }
+            var history = tab.history
+            history.push(leaving)
+            show(document, in: tab.id, history: history)
+        }
+    }
+
+    /// Back and Forward: `steps` entries along the current tab's lists (docs/navigation-spec.md, Back and forward).
+    public func goBack(steps: Int = 1) { Task { await step(back: true, steps: steps) } }
+    public func goForward(steps: Int = 1) { Task { await step(back: false, steps: steps) } }
+
+    func step(back: Bool, steps: Int) async {
+        guard let tab = tabs.current, let current = Self.path(of: tab.document) else { return }
+        var history = tab.history
+        guard let target = back ? history.goBack(steps, from: current) : history.goForward(steps, from: current) else { return }
+        switch placement(for: target) {
+        case .stay: return
+        case .switchTo(let id): activate(id)
+        case .newTab:
+            setHistory(of: tab.id) { $0.remove(under: [target]) }
+            await openInTab(URL(fileURLWithPath: target))
+        case .replace:
+            guard let document = await loadDocument(URL(fileURLWithPath: target)) else {
+                // A file that no longer loads leaves the list, and the next entry is tried.
+                setHistory(of: tab.id) { $0.remove(under: [target]) }
+                if tabs.currentID == tab.id { await step(back: back, steps: 1) }
+                return
+            }
+            show(document, in: tab.id, history: history)
+        }
+    }
+
+    private func placement(for target: String) -> Placement {
+        let open = tabs.items.compactMap { tab in Self.path(of: tab.document).map { (id: tab.id, path: $0) } }
+        return Placement.decide(target: target, currentID: tabs.currentID, tabs: open) {
+            guard let document = currentDocument else { return false }
+            autosaves[ObjectIdentifier(document)]?.flushSync()
+            return Placement.canLeave(isUntitled: document.isUntitled, isPreferences: document.isPreferencesFile,
+                                      isBackup: document.isBackupTab, isEdited: document.isEdited)
+        }
+    }
+
+    /// Puts a loaded document in a tab in place of its file. When the tab stopped being current while the file
+    /// loaded, or the file opened in another tab meanwhile, it goes to a tab of its own instead.
+    private func show(_ document: Document, in tabID: TabItem.ID, history: TabHistory) {
+        if let url = document.url, let existing = openDocument(url) {
+            document.stopWatching()
+            if let id = tabs.items.first(where: { $0.document === existing })?.id { activate(id) }
+            return
+        }
+        guard tabs.currentID == tabID, let position = tabs.items.firstIndex(where: { $0.id == tabID }) else {
+            insertTab(TabItem(document: document, mark: mark(for: document)))
+            return
+        }
+        let old = tabs.items[position].document
+        leave(old)
+        forget(old)
+        detachCurrent()
+        tabs.items[position].document = document
+        tabs.items[position].mark = mark(for: document)
+        tabs.items[position].history = history
+        prepare(document)
+        activate(tabID)
+    }
+
+    private func setHistory(of tabID: TabItem.ID, _ change: (inout TabHistory) -> Void) {
+        guard let position = tabs.items.firstIndex(where: { $0.id == tabID }) else { return }
+        change(&tabs.items[position].history)
+        saveMemory()
+    }
+
+    /// The standardized path a tab's history and placement compare.
+    static func path(of document: Document) -> String? {
+        (document.url ?? document.untitledURL)?.standardizedFileURL.path
     }
 
     private func insertTab(_ item: TabItem) {
@@ -582,11 +747,7 @@ public final class WindowModel {
     public func activate(_ tabID: TabItem.ID) {
         guard tabs.items.contains(where: { $0.id == tabID }) else { return }
         if tabs.currentID == tabID, markdown != nil { return }
-        if let old = currentDocument, tabs.currentID != tabID {
-            autosaves[ObjectIdentifier(old)]?.flushSync()
-            recordHistory(old)
-            requestBackup(old)
-        }
+        if let old = currentDocument, tabs.currentID != tabID { leave(old) }
         tabs.currentID = tabID
         attachCurrent()
         guard let document = currentDocument else { return }
@@ -597,6 +758,13 @@ public final class WindowModel {
         }
         saveMemory()
         if window?.isKeyWindow == true { Task { await checkDisk(document) } }
+    }
+
+    /// What leaving a file in a tab saves: autosave's pending text, its scroll and selection, a backup.
+    private func leave(_ document: Document) {
+        autosaves[ObjectIdentifier(document)]?.flushSync()
+        recordHistory(document)
+        requestBackup(document)
     }
 
     /// The editor forwards edits to the tab's `MarkdownDocument` only while it is attached; an editor attaching to a
@@ -905,11 +1073,13 @@ public final class WindowModel {
         case "window:commands": openPopup(.commands)
         case "window:next-tab": cycleTab(by: 1)
         case "window:previous-tab": cycleTab(by: -1)
-        case "window:sidebar": toggleSidebar(.files)
-        case "window:headings-bar": toggleSidebar(.outline)
+        case "window:go-back": goBack()
+        case "window:go-forward": goForward()
+        case "window:sidebar": showSection(.files)
+        case "window:headings-bar": showSection(.outline)
         case "window:toggle-sidebar":
             interfaceHidden = false
-            sidebar.toggle()
+            sidebar.visible.toggle()
             sidebarChanged()
         case "window:toggle-live-preview": setPreviewMode(previewMode == .split ? .none : .split)
         case "window:toggle-preview": setPreviewMode(previewMode == .full ? .none : .full)
@@ -932,45 +1102,120 @@ public final class WindowModel {
     /// Check marks for window-level commands.
     func isOn(_ id: String) -> Bool {
         switch id {
-        case "window:sidebar": sidebar.mode == .files
-        case "window:headings-bar": sidebar.mode == .outline
-        case "window:toggle-sidebar": sidebar.mode == .none
+        case "window:toggle-sidebar": sidebarVisible
         case "window:toggle-live-preview": previewMode == .split
         case "window:toggle-preview": previewMode == .full
         default: false
         }
     }
 
-    /// Show Files / Show Outline (spec 897, 921): hides that sidebar when it shows and has focus, else shows it.
-    private func toggleSidebar(_ mode: SidebarMode) {
+    /// Show Files / Show Outline (spec 897, 921): shows the sidebar with the section unfolded and focused; pressed
+    /// again while the section shows and the editor does not have focus, hides the sidebar.
+    private func showSection(_ kind: SidebarSectionKind) {
         if previewMode == .full { setPreviewMode(.none) }
         let editorFocused = window?.firstResponder is EditorTextView
+        let section = context.sidebarSections[kind]
         if interfaceHidden {
             setInterfaceHidden(false)
-            sidebar.show(mode)
-        } else if sidebar.mode == mode, !editorFocused {
-            sidebar.show(.none)
-            sidebar.lastVisible = mode
+            sidebar.visible = true
+        } else if sidebar.visible, !section.hidden, !section.folded, !editorFocused {
+            sidebar.visible = false
             editor.focus()
         } else {
-            sidebar.show(mode)
+            sidebar.visible = true
         }
-        if sidebar.mode == .files, let url = currentDocument?.url { expandFolders(to: url) }
-        if sidebar.mode == .files { sidebar.filesFocusRequested = true }
+        if sidebar.visible {
+            context.sidebarSections.reveal(kind)
+            saveSections()
+            if kind == .files {
+                if let url = currentDocument?.url { expandFolders(to: url) }
+                sidebar.filesFocusRequested = true
+            } else {
+                sidebar.outlineFocusRequested = true
+            }
+        }
         sidebarChanged()
     }
 
     private func sidebarChanged() {
-        let store = context.store, id = id, mode = sidebar.mode
-        Task { try? await store.save(Self.sidebarName(id), mode) }
+        let store = context.store, id = id, saved = sidebar.saved
+        Task { try? await store.save(Self.sidebarName(id), saved) }
         updateMinimumWidth()
         refreshChangedHeadings()
     }
 
-    /// Headings whose section has a git line mark (spec 923); worked out only while the Outline sidebar shows.
+    private func saveSections() {
+        let sections = context.sidebarSections, store = context.store
+        Task { try? await sections.save(to: store) }
+    }
+
+    private func savePins() {
+        let pins = context.pins, store = context.store
+        Task { try? await pins.save(to: store) }
+    }
+
+    /// Pin from a file's menu in Files or Recent, or Pin in Sidebar on a tab.
+    func pin(_ url: URL) {
+        guard let folder else { return }
+        context.pins.pin(url, in: folder)
+        savePins()
+    }
+
+    /// The header row's clicks, menu and drags, and the right edge's drag (docs/navigation-spec.md, The sidebar).
+    var sidebarSectionActions: SidebarActions {
+        SidebarActions(
+            toggleFold: { [weak self] kind in
+                self?.context.sidebarSections.toggleFold(kind)
+                self?.saveSections()
+                self?.refreshChangedHeadings()
+            },
+            setHidden: { [weak self] kind, hidden in
+                self?.context.sidebarSections.setHidden(kind, hidden)
+                self?.saveSections()
+                self?.refreshChangedHeadings()
+            },
+            move: { [weak self] kind, target in
+                self?.context.sidebarSections.move(kind, before: target)
+                self?.saveSections()
+            },
+            resize: { [weak self] proposed in
+                guard let self else { return }
+                if let width = SidebarState.draggedWidth(proposed) {
+                    sidebar.width = width
+                } else {
+                    sidebar.visible = false
+                    sidebarChanged()
+                }
+            },
+            resizeEnded: { [weak self] in self?.sidebarChanged() },
+            resetWidth: { [weak self] in
+                self?.sidebar.width = Tokens.sidebarWidth
+                self?.sidebarChanged()
+            })
+    }
+
+    /// The Pinned and Recent rows.
+    var fileListActions: FileListActions {
+        FileListActions(
+            open: { [weak self] url, newTab in self?.open(url, newTab: newTab) },
+            pin: { [weak self] url in self?.pin(url) },
+            unpin: { [weak self] url in
+                guard let self, let folder else { return }
+                context.pins.unpin(url, in: folder)
+                savePins()
+            },
+            movePin: { [weak self] url, index in
+                guard let self, let folder else { return }
+                context.pins.move(url, to: index, in: folder)
+                savePins()
+            },
+            revealInFinder: { FileOperations.revealInFinder($0) })
+    }
+
+    /// Headings whose section has a git line mark (spec 923); worked out only while the Outline section shows.
     private func refreshChangedHeadings() {
         changedHeadingsTask?.cancel()
-        guard sidebar.mode == .outline, let git, let url = currentDocument?.url, let snapshot else {
+        guard outlineShowing, let git, let url = currentDocument?.url, let snapshot else {
             changedHeadings = []
             return
         }
@@ -1024,7 +1269,7 @@ public final class WindowModel {
     }
 
     func updateMinimumWidth() {
-        minimumWidthChanged(Self.minimumWidth(sidebarVisible: sidebarVisible, previewVisible: previewMode != .none))
+        minimumWidthChanged(Self.minimumWidth(sidebarWidth: sidebarVisible ? sidebar.width : nil, previewVisible: previewMode != .none))
     }
 
     // MARK: Preview
@@ -1152,10 +1397,10 @@ public final class WindowModel {
     }
 
     /// Opens a hit in its tab, selected and centred (spec 989).
-    public func openHit(_ hit: SearchHit) {
+    public func openHit(_ hit: SearchHit, newTab: Bool = false) {
         closePopup()
         Task {
-            await openInTab(hit.url)
+            if newTab { await openInTab(hit.url) } else { await openInPlace(hit.url) }
             guard let document = openDocument(hit.url) else { return }
             editor.show(range: hit.range, in: document, position: .center)
         }
@@ -1268,9 +1513,11 @@ public final class WindowModel {
     }
 
     private func updateMemory() {
-        memory.files = tabs.items.compactMap { tab in
-            tab.document.isBackupTab ? nil : (tab.document.url ?? tab.document.untitledURL)?.path
+        let saved = tabs.items.compactMap { tab -> (path: String, history: TabHistory)? in
+            tab.document.isBackupTab ? nil : (tab.document.url ?? tab.document.untitledURL).map { ($0.path, tab.history) }
         }
+        memory.files = saved.map(\.path)
+        memory.history = saved.map(\.history)
         let real = tabs.items.filter { !$0.document.isBackupTab }
         memory.current = real.firstIndex { $0.id == tabs.currentID }
     }
@@ -1329,7 +1576,7 @@ public final class WindowModel {
 
     var sidebarActions: FilesSidebarActions {
         FilesSidebarActions(
-            open: { [weak self] url, _ in self?.open(url) },
+            open: { [weak self] url, newTab in self?.open(url, newTab: newTab) },
             createFile: { [weak self] folder, name in
                 let url = try FileOperations.createFile(in: folder, name: name)
                 if OpenableFiles.isOpenable(url) { self?.open(url) }
@@ -1347,13 +1594,20 @@ public final class WindowModel {
             cut: { [weak self] urls in self?.fileClipboard = (urls, true) },
             paste: { [weak self] folder in self?.pasteFiles(into: folder) },
             revealInFinder: { FileOperations.revealInFinder($0) },
-            focusEditor: { [weak self] in self?.editor.focus() })
+            focusEditor: { [weak self] in self?.editor.focus() },
+            pin: { [weak self] url in self?.pin(url) })
     }
 
     /// Renamed files keep their tab, unsaved text and backups; the tab is updated, not reloaded (spec 843, 885).
     private func fileMoved(from old: URL, to new: URL) {
         let backups = context.backups
         Task { try? await backups.rename(from: old.path, to: new.path) }
+        for position in tabs.items.indices {
+            tabs.items[position].history.rename(from: old.standardizedFileURL.path, to: new.standardizedFileURL.path)
+        }
+        context.pins.rename(from: old.standardizedFileURL.path, to: new.standardizedFileURL.path)
+        savePins()
+        saveMemory()
         guard let position = tabs.items.firstIndex(where: { $0.document.url?.standardizedFileURL == old.standardizedFileURL }) else { return }
         let document = tabs.items[position].document
         document.moved(to: new)
@@ -1367,6 +1621,9 @@ public final class WindowModel {
     /// Trashed or cut files close their tabs without prompting.
     private func closeTabs(under urls: [URL]) {
         let paths = urls.map { $0.standardizedFileURL.path }
+        for position in tabs.items.indices { tabs.items[position].history.remove(under: paths) }
+        context.pins.remove(under: paths)
+        savePins()
         for tab in tabs.items {
             guard let path = tab.document.url?.standardizedFileURL.path,
                   paths.contains(where: { path == $0 || path.hasPrefix($0 + "/") }) else { continue }
@@ -1412,7 +1669,7 @@ public final class WindowModel {
         actions.recentEmoji = { await EmojiTable.shared.recent(in: store) }
         actions.recordEmoji = { emoji in Task { try? await EmojiTable.shared.recordRecent(emoji, in: store) } }
         actions.folderURL = { [weak self] in self?.folder }
-        actions.openPath = { [weak self] url in self?.open(url) }
+        actions.openPath = { [weak self] url, newTab in self?.open(url, newTab: newTab) }
         actions.showInSidebar = { [weak self] url in self?.showInSidebar(url) }
         actions.createFile = { [weak self] url in
             try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
@@ -1438,7 +1695,9 @@ public final class WindowModel {
 
     private func showInSidebar(_ url: URL) {
         interfaceHidden = false
-        sidebar.show(.files)
+        sidebar.visible = true
+        context.sidebarSections.reveal(.files)
+        saveSections()
         expandFolders(to: url)
         sidebarChanged()
     }

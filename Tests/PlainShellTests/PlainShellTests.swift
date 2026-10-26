@@ -127,16 +127,24 @@ final class PlainShellTests: XCTestCase {
             select: { _ in }, close: { _ in }, closeOthers: { _ in }, closeAll: {}, move: { _, _ in },
             showInFinder: { _ in }, revertToBackup: { _ in }, toggleZoom: {})
         let file = folder.appendingPathComponent("a.md")
+        let fileActions = FileListActions(open: { _, _ in }, pin: { _ in }, unpin: { _ in }, movePin: { _, _ in }, revealInFinder: { _ in })
+        let sidebarActions = SidebarActions(
+            toggleFold: { _ in }, setHidden: { _, _ in }, move: { _, _ in }, resize: { _ in }, resizeEnded: {}, resetWidth: {})
 
         let views: [AnyView] = [
-            AnyView(GoToFilePopup(recents: [file], allFiles: [file], gitMarks: [file: .changed], query: .constant(""), selection: .constant(0), onOpen: { _ in }, onCancel: {})),
+            AnyView(GoToFilePopup(recents: [file], allFiles: [file], gitMarks: [file: .changed], query: .constant(""), selection: .constant(0), onOpen: { _, _ in }, onCancel: {})),
             AnyView(GoToHeadingPopup(headings: list, query: .constant("Two"), selection: .constant(0), onPick: { _ in }, onCancel: {})),
             AnyView(CommandsPopup(recent: ["file:save"], isChecked: { _ in true }, query: .constant(""), selection: .constant(0), onRun: { _ in }, onCancel: {})),
             AnyView(RecentFoldersPopup(folders: [folder, FileManager.default.homeDirectoryForCurrentUser], currentFolder: folder, query: .constant(""), selection: .constant(0), onOpen: { _ in }, onCancel: {})),
             AnyView(BackupsPopup(backups: [], query: .constant(""), selection: .constant(0), onPick: { _ in }, onCancel: {})),
             AnyView(TabSwitcherPopup(tabs: tabs, selection: .constant(1), modifierFlags: flags, onPick: { _ in }, onCancel: {})),
-            AnyView(FindInFolderPopup(folder: folder, hits: hits, query: .constant("One"), selection: .constant(0), onPick: { _ in }, onCancel: {})),
-            AnyView(FilesSidebar(root: tree, currentFile: file, gitMarks: [file: .added], expanded: .constant([]), compact: true, actions: actions)),
+            AnyView(FindInFolderPopup(folder: folder, hits: hits, query: .constant("One"), selection: .constant(0), onPick: { _, _ in }, onCancel: {})),
+            AnyView(FilesSidebar(root: tree, currentFile: file, gitMarks: [file: .added], expanded: .constant([]), actions: actions)),
+            AnyView(FileListSection(files: [file], currentFile: file, gitMarks: [file: .changed], isPinned: true, actions: fileActions)),
+            AnyView(Sidebar(
+                sections: SidebarSections().items, titles: [.pinned: "Pinned", .files: "folder", .outline: "Outline"],
+                pinnedCount: 1, recentCount: 0, width: 200, compact: true, actions: sidebarActions
+            ) { _ in Text("rows") }),
             AnyView(OutlineSidebar(headings: list, caretOffset: 10, changedHeadings: [], onJump: { _, _ in })),
             AnyView(TextStatsLabel(text: "two words", isSelection: true, mode: .wordCount, onPick: { _ in })),
             AnyView(NotificationBar(notification: ShellNotification(message: "Saved", isError: true, buttons: [.init(label: "Restart", action: {})]), onClose: {})),
@@ -163,10 +171,129 @@ final class PlainShellTests: XCTestCase {
         XCTAssertEqual(state.selection, 0)
         state.open(.files)
         XCTAssertEqual(state.selection, 1)
-        let sidebar = SidebarState(mode: .outline)
-        sidebar.toggle()
-        XCTAssertEqual(sidebar.mode, .none)
-        sidebar.toggle()
-        XCTAssertEqual(sidebar.mode, .outline)
+    }
+
+    // MARK: Sidebar
+
+    func testSidebarLayoutHeights() {
+        // Turns red if Pinned and Recent stop taking their rows' height (10 and 6 at most), or Files and Outline stop
+        // sharing what is left (docs/navigation-spec.md, Heights).
+        let all: Set<SidebarSectionKind> = Set(SidebarSectionKind.allCases)
+        let sections = SidebarSectionKind.allCases.map { SidebarSection(kind: $0) }
+        // 4 headers (96) + 3 gaps (36) + 10 pins (240) + 2 recents (48) leaves 180.
+        let open = SidebarLayout.place(sections, present: all, pinned: 14, recent: 2, height: 600)
+        XCTAssertEqual(open.map(\.body), [240, 48, 90, 90])
+
+        var filesFolded = sections
+        filesFolded[2].folded = true
+        XCTAssertEqual(SidebarLayout.place(filesFolded, present: all, pinned: 14, recent: 2, height: 600).map(\.body), [240, 48, 0, 180])
+
+        var outlineHidden = sections
+        outlineHidden[3].hidden = true
+        let three = SidebarLayout.place(outlineHidden, present: all, pinned: 14, recent: 2, height: 600)
+        XCTAssertEqual(three.map(\.kind), [.pinned, .recent, .files])
+        XCTAssertEqual(three.last?.body, 216)
+
+        let noFolder = SidebarLayout.place(sections, present: [.recent, .outline], pinned: 0, recent: 8, height: 100)
+        XCTAssertEqual(noFolder.map(\.kind), [.recent, .outline])
+        XCTAssertEqual(noFolder.map(\.body), [144, 0])
+    }
+
+    func testSidebarWidthAndOldState() {
+        // Turns red if dragging the edge stops clamping to 160–400 or closing below 120, or an old sidebar-w<N> mode
+        // string stops loading.
+        XCTAssertNil(SidebarState.draggedWidth(119))
+        XCTAssertEqual(SidebarState.draggedWidth(120), 160)
+        XCTAssertEqual(SidebarState.draggedWidth(250), 250)
+        XCTAssertEqual(SidebarState.draggedWidth(900), 400)
+
+        let state = SidebarState()
+        state.apply(oldMode: "none")
+        XCTAssertFalse(state.visible)
+        state.apply(oldMode: "outline")
+        XCTAssertTrue(state.visible)
+        state.apply(SidebarState.Saved(visible: true, width: 1000))
+        XCTAssertEqual(state.width, 400)
+    }
+
+    func testSidebarSectionsOrderHideAndLoad() async throws {
+        // Turns red if dragging a header stops moving its section, Show Files stops un-hiding and unfolding, or a
+        // saved list missing a section stops loading with that section added at the end.
+        let sections = SidebarSections()
+        sections.move(.outline, before: .pinned)
+        XCTAssertEqual(sections.items.map(\.kind), [.outline, .pinned, .recent, .files])
+        sections.setHidden(.files, true)
+        sections.toggleFold(.files)
+        XCTAssertTrue(sections[.files].hidden)
+        XCTAssertTrue(sections[.files].folded)
+        sections.reveal(.files)
+        XCTAssertFalse(sections[.files].hidden)
+        XCTAssertFalse(sections[.files].folded)
+
+        let store = StateStore(folder: folder.appendingPathComponent("state"))
+        try await store.save(SidebarSections.stateName, [SidebarSection(kind: .files, folded: true), SidebarSection(kind: .pinned)])
+        let loaded = SidebarSections()
+        await loaded.load(from: store)
+        XCTAssertEqual(loaded.items.map(\.kind), [.files, .pinned, .recent, .outline])
+        XCTAssertTrue(loaded[.files].folded)
+    }
+
+    func testPinsFollowRenameAndTrash() async throws {
+        // Turns red if pins stop following a renamed folder, stop being dropped with a trashed file, or stop
+        // surviving a save and load.
+        let root = URL(fileURLWithPath: "/f")
+        let pins = Pins()
+        pins.pin(URL(fileURLWithPath: "/f/notes/a.md"), in: root)
+        pins.pin(URL(fileURLWithPath: "/f/b.md"), in: root)
+        pins.pin(URL(fileURLWithPath: "/f/b.md"), in: root)
+        pins.move(URL(fileURLWithPath: "/f/b.md"), to: 0, in: root)
+        XCTAssertEqual(pins.files(in: root).map(\.path), ["/f/b.md", "/f/notes/a.md"])
+        pins.rename(from: "/f/notes", to: "/f/old")
+        XCTAssertEqual(pins.files(in: root).map(\.path), ["/f/b.md", "/f/old/a.md"])
+        pins.remove(under: ["/f/b.md"])
+        XCTAssertEqual(pins.files(in: root).map(\.path), ["/f/old/a.md"])
+
+        let store = StateStore(folder: folder.appendingPathComponent("state"))
+        try await pins.save(to: store)
+        let loaded = Pins()
+        await loaded.load(from: store)
+        XCTAssertEqual(loaded.files(in: root).map(\.path), ["/f/old/a.md"])
+    }
+
+    // MARK: Tab history
+
+    func testTabHistorySteps() {
+        // Turns red if TabHistory loses its 50-entry cap, keeps the forward list after a push, or steps several
+        // entries in the wrong order.
+        var history = TabHistory()
+        for n in 0..<60 { history.push("/f/\(n).md") }
+        XCTAssertEqual(history.back.count, 50)
+        XCTAssertEqual(history.back.first, "/f/10.md")
+
+        history = TabHistory(back: ["/a", "/b", "/c"])
+        XCTAssertEqual(history.goBack(3, from: "/d"), "/a")
+        XCTAssertEqual(history.back, [])
+        XCTAssertEqual(history.forward, ["/d", "/c", "/b"])
+        XCTAssertEqual(history.goForward(from: "/a"), "/b")
+        XCTAssertEqual(history.back, ["/a"])
+        XCTAssertEqual(history.forward, ["/d", "/c"])
+        XCTAssertNil(history.goBack(2, from: "/b"))
+        history.push("/b")
+        XCTAssertEqual(history.back, ["/a", "/b"])
+        XCTAssertEqual(history.forward, [])
+    }
+
+    func testTabHistoryRenameRemoveAndJSON() throws {
+        // Turns red if renaming a folder stops moving the entries under it, catches a sibling that only shares the
+        // prefix, or the lists stop surviving a JSON round trip.
+        var history = TabHistory(back: ["/f/notes/a.md", "/f/notes2.md", "/f/b.md"], forward: ["/f/notes"])
+        history.rename(from: "/f/notes", to: "/f/old")
+        XCTAssertEqual(history.back, ["/f/old/a.md", "/f/notes2.md", "/f/b.md"])
+        XCTAssertEqual(history.forward, ["/f/old"])
+        history.remove(under: ["/f/old"])
+        XCTAssertEqual(history.back, ["/f/notes2.md", "/f/b.md"])
+        XCTAssertEqual(history.forward, [])
+        let data = try JSONEncoder().encode(history)
+        XCTAssertEqual(try JSONDecoder().decode(TabHistory.self, from: data), history)
     }
 }
