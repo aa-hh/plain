@@ -114,7 +114,7 @@ public struct PopupCard<Row: View>: View {
         .frame(width: Tokens.popupWidth)
         .background(Color.material, in: RoundedRectangle(cornerRadius: Tokens.cornerRadius))
         .modifier(RingShadow())
-        .onAppear { fieldFocused = true }
+        .onAppear { DispatchQueue.main.async { fieldFocused = true } }
         .onChange(of: fieldFocused) { _, focused in if !focused && filter != nil { onCancel() } }
         .onChange(of: activeState) { _, state in if state == .inactive { onCancel() } }
     }

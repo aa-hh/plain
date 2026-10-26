@@ -57,7 +57,7 @@ public struct FileListSection: View {
     @ViewBuilder private func row(_ url: URL, index: Int) -> some View {
         let ext = url.pathExtension.isEmpty ? "" : "." + url.pathExtension
         let base = HStack(spacing: 0) {
-            FileIcon(kind: OpenableFiles.fileKind(for: url))
+            FileIcon(kind: OpenableFiles.fileKind(for: url)).padding(.trailing, 6)
             Text(url.deletingPathExtension().lastPathComponent).foregroundStyle(Color.secondaryText)
             Text(ext).foregroundStyle(Color.tertiaryText)
             Spacer(minLength: 4)
