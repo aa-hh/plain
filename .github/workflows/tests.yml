@@ -38,13 +38,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # Package.swift needs Swift 6.4; the runner's default Xcode has 6.3.3.
-      - name: Select the newest Xcode
-        run: |
-          xcode=$(ls -d /Applications/Xcode*.app | sort -V | tail -1)
-          sudo xcode-select -s "$xcode"
-          swift --version
-
       - name: Restore SwiftPM build cache
         uses: actions/cache/restore@v4
         with:
