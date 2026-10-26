@@ -78,6 +78,8 @@ State files: `app` (focused window), `commands` (3 most recent commands), `emoji
 - Replace is removed. Find has no replace field and no Replace menu item.
 - File has a New Window item (Cmd+Shift+N, `file:new-window`). Caret had multi-window state but no way to open a second window (spec line 1252).
 - The `plain` command-line tool is `exec open -a Plain "$@"`. It has no `--version` and no help text.
+- The Claude preview theme's h4 is semibold while h3 is bold. The measured renderer gives both levels the same size and the same weight, so they read as one; Plain tells them apart by weight, the same device the measured classes use for h5 and h6 (issue 2).
+- A paragraph whose every line holds a `|`, starting after a blank line or at the top of the document, is held as a table in the preview while the caret sits in it. The measured renderer opens a table on any line holding a `|`; that is right for text arriving from a model and wrong for text arriving from a keyboard, and it is kept deliberately (issue 1).
 - Ordered list renumbering always starts from 1, so a list that begins at `5.` becomes `1.`, `2.`, `3.`. Lists of all `1.` stay that way.
 - Each tab gets its own `MarkdownDocument` the first time it becomes the current tab and keeps it until the tab closes, so switching back to a tab does not reparse it.
 - Spelling leaves language detection to the system setting and drops Caret's own word list and its English two-letter transposition list (spec line 321).
