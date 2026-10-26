@@ -37,6 +37,8 @@ swift-markdown (cmark-gfm with tables, strikethrough and task lists) does the Co
 
 Edits reparse a window of lines, not the whole text. The window runs from the block before the first edited block to the second block after the last one. It grows when the edit leaves a fence open or when the last block in the window ends differently than before, up to 8 times; after that, or when footnote labels change, the whole text is parsed again. Blocks whose text did not change keep their `BlockID`, and each snapshot lists the changed and removed ids so the editor and preview only redo those blocks.
 
+Document-wide facts are worked out once per edit and carried on the snapshot: heading slugs, reference definitions and footnote numbers. Footnote numbering walks only the blocks flagged as holding a footnote reference, and reads their stored offsets plus the distance the block moved, so an edit near the top costs no copying of later blocks. The preview reads the numbers from the snapshot and does not walk the document.
+
 The preview colours code from the snapshot's Prism tokens. Maths in the preview is rendered by `KaTeXJSRenderer`, which runs KaTeX in its own `JSContext` and caches 1,024 results.
 
 ## Threads
@@ -99,8 +101,11 @@ Release build, `swift test -c release --filter PerformanceTests`, run on 22 Octo
 | `editor-keystroke-p95-ms` | 5.127 ms | 8 ms |
 | `editor-load-visible-styled-ms` (1 MB file) | 224 to 302 ms (rerun) | 300 ms |
 | `tab-switch-1mb-ms` | 32.3 ms | 50 ms |
-| `preview-one-block-p95-ms` | 0.81 ms | 20 ms |
-| `preview-full-html-ms` (20,838 blocks, 7,098,353 bytes) | 129.2 ms | 500 ms |
+| `preview-one-block-p95-ms` (26 October) | 0.63 ms | 20 ms |
+| `preview-one-block-footnotes-p95-ms` (one block plus the footnotes section, after an edit at the top; one note cited 2,500 times; 26 October) | 2.30 ms | 20 ms |
+| `preview-full-html-ms` (20,838 blocks, 7,851,994 bytes; 26 October) | 99.6 ms | 500 ms |
 | `folder-index-5000-files` | 112.9 ms | 2,000 ms |
 | `folder-search-5000-files` | 56.5 ms | 300 ms |
 | `git-line-diff-10k-lines` | 13.06 ms | 30 ms |
+
+The renderer writes each call's output into one buffer and makes it a string through `NSString`. `String(decoding:as: UTF16.self)` converts one unit at a time in the macOS 26.5 standard library, and on the mule it took 86% of a full-document render (500 ms there, 79.5 ms after the change).

@@ -36,6 +36,7 @@ public actor MarkdownDocument {
         current = Snapshot(version: TextVersion(rawValue: 0), text: Self.string(source.units), blocks: parsed.blocks,
                            headings: Self.headings(in: parsed.blocks, slugs: &slugs),
                            referenceDefinitions: Self.definitions(in: parsed.blocks),
+                           footnotes: Footnotes(blocks: parsed.blocks),
                            changedBlockIDs: Set(parsed.blocks.map(\.id)), removedBlockIDs: [],
                            changedRange: NSRange(location: 0, length: source.units.count), provisional: nil)
         self.slugs = slugs
@@ -136,7 +137,7 @@ public actor MarkdownDocument {
             range = range.length == 0 ? block.range : NSUnionRange(range, block.range)
         }
         return Snapshot(version: version, text: current.text, blocks: current.blocks, headings: current.headings,
-                        referenceDefinitions: current.referenceDefinitions, changedBlockIDs: changed,
+                        referenceDefinitions: current.referenceDefinitions, footnotes: current.footnotes, changedBlockIDs: changed,
                         removedBlockIDs: [], changedRange: range, provisional: next)
     }
 
@@ -298,7 +299,7 @@ public actor MarkdownDocument {
         if let held = current.provisional, held.id != provisional?.id { changed.insert(held.id) }
         return Snapshot(version: version, text: Self.string(source.units), blocks: merged,
                         headings: Self.headings(in: merged, slugs: &slugs), referenceDefinitions: definitions,
-                        changedBlockIDs: changed, removedBlockIDs: removed, changedRange: changedRange,
+                        footnotes: footnoteLabels.isEmpty ? Footnotes() : Footnotes(blocks: merged), changedBlockIDs: changed, removedBlockIDs: removed, changedRange: changedRange,
                         provisional: provisional)
     }
 

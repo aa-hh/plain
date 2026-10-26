@@ -96,67 +96,28 @@ public struct HTMLRenderer: Sendable {
     /// definitions, HTML comments).
     public func html(for block: Block, in snapshot: Snapshot) -> String {
         var writer = Writer(snapshot: snapshot, renderer: self)
-        return writer.topLevel(block)
+        writer.topLevel(block)
+        return writer.takeOutput()
     }
 
-    /// The whole document: every block, then the footnotes section.
+    /// The whole document: every block, then the footnotes section, written into one buffer.
     public func html(for snapshot: Snapshot) -> String {
         var writer = Writer(snapshot: snapshot, renderer: self)
-        var result = ""
-        for block in snapshot.blocks { result += writer.topLevel(block) }
-        return result + writer.footnotesSection()
+        for block in snapshot.blocks { writer.topLevel(block) }
+        writer.footnotesSection()
+        return writer.takeOutput()
     }
 
     /// Several top-level blocks from one snapshot, sharing the document-wide lookups.
-    func html(for blocks: [Block], in snapshot: Snapshot) -> (blocks: [BlockID: String], footnotes: String, footnoteOrder: [String]) {
+    func html(for blocks: [Block], in snapshot: Snapshot) -> (blocks: [BlockID: String], footnotes: String) {
         var writer = Writer(snapshot: snapshot, renderer: self)
         var result: [BlockID: String] = [:]
-        for block in blocks { result[block.id] = writer.topLevel(block) }
-        return (result, writer.footnotesSection(), writer.footnotes.order)
-    }
-}
-
-/// Footnote numbers, in the order references first appear.
-struct Footnotes {
-    var order: [String] = []
-    var numbers: [String: Int] = [:]
-    /// Reference location to (number, how many references to that label came before it).
-    var references: [Int: (number: Int, occurrence: Int)] = [:]
-    var counts: [String: Int] = [:]
-    var definitions: [String: Block] = [:]
-
-    init() {}
-
-    init(snapshot: Snapshot) {
-        for block in snapshot.blocks {
-            if case .footnoteDefinition(let label) = block.kind, definitions[label] == nil { definitions[label] = block }
+        for block in blocks {
+            writer.topLevel(block)
+            result[block.id] = writer.takeOutput()
         }
-        guard !definitions.isEmpty else { return }
-        func visit(_ inlines: [Inline]) {
-            for inline in inlines {
-                if case .footnoteReference(let label) = inline.kind, definitions[label] != nil {
-                    let number: Int
-                    if let existing = numbers[label] {
-                        number = existing
-                    } else {
-                        order.append(label)
-                        number = order.count
-                        numbers[label] = number
-                    }
-                    let occurrence = counts[label, default: 0]
-                    counts[label] = occurrence + 1
-                    references[inline.range.location] = (number, occurrence)
-                }
-                visit(inline.children)
-            }
-        }
-        func visit(_ blocks: [Block]) {
-            for block in blocks {
-                visit(block.inlines)
-                visit(block.children)
-            }
-        }
-        visit(snapshot.blocks)
+        writer.footnotesSection()
+        return (result, writer.takeOutput())
     }
 }
 
@@ -165,7 +126,6 @@ struct Writer {
     let renderer: HTMLRenderer
     let units: [UInt16]
     let slugs: [BlockID: String]
-    private var footnotesStorage: Footnotes?
     private var out: [UInt16] = []
     private var needsSanitizing = false
 
@@ -181,15 +141,6 @@ struct Writer {
         var slugs: [BlockID: String] = [:]
         for heading in snapshot.headings { slugs[heading.blockID] = heading.slug }
         self.slugs = slugs
-    }
-
-    var footnotes: Footnotes {
-        mutating get {
-            if let footnotesStorage { return footnotesStorage }
-            let built = Footnotes(snapshot: snapshot)
-            footnotesStorage = built
-            return built
-        }
     }
 
     // MARK: Output
@@ -211,11 +162,31 @@ struct Writer {
     }
 
     private func string(_ range: NSRange) -> String {
-        String(decoding: units[range.location..<NSMaxRange(range)], as: UTF16.self)
+        Self.string(units[range.location..<NSMaxRange(range)])
     }
 
     private func string(_ range: Range<Int>) -> String {
-        String(decoding: units[range], as: UTF16.self)
+        Self.string(units[range])
+    }
+
+    /// Through `NSString`, which copies the units as they are. `String(decoding:as: UTF16.self)` converts them one
+    /// at a time on macOS 26 and took 86% of a full-document render on the mule.
+    static func string(_ units: ArraySlice<UInt16>) -> String {
+        guard !units.isEmpty else { return "" }
+        return units.withUnsafeBufferPointer { NSString(characters: $0.baseAddress!, length: $0.count) as String }
+    }
+
+    /// The output written since the last call, as one string; empties the buffer.
+    mutating func takeOutput() -> String {
+        defer { out.removeAll(keepingCapacity: true) }
+        return Self.string(out[...])
+    }
+
+    /// Runs the output written from `start` through `Sanitizer` when it holds raw HTML or attributes.
+    private mutating func sanitizeOutput(from start: Int) {
+        guard needsSanitizing else { return }
+        let html = Self.string(out[start...])
+        out.replaceSubrange(start..., with: Sanitizer.sanitize(html, rewriteURL: renderer.resolveURL).utf16)
     }
 
     /// Length of a character entity (`&copy;`, `&#169;`, `&#xA9;`) starting at `index`, or nil.
@@ -298,12 +269,12 @@ struct Writer {
 
     // MARK: Blocks
 
-    mutating func topLevel(_ block: Block) -> String {
-        out.removeAll(keepingCapacity: true)
+    /// Appends one top-level block to the output.
+    mutating func topLevel(_ block: Block) {
+        let start = out.count
         needsSanitizing = false
         self.block(block, tight: false, extra: " data-block=\"\(block.id.rawValue)\" data-line=\"\(block.lineRange.lowerBound)\"")
-        let html = String(decoding: out, as: UTF16.self)
-        return needsSanitizing ? Sanitizer.sanitize(html, rewriteURL: renderer.resolveURL) : html
+        sanitizeOutput(from: start)
     }
 
     /// Writes one block. `extra` goes inside the first opening tag; `tight` drops `<p>` around paragraphs.
@@ -648,7 +619,7 @@ struct Writer {
             if index > 0 { result.append(10) }
             for offset in segment.location..<NSMaxRange(segment) where !skipped.contains(offset) { result.append(units[offset]) }
         }
-        return String(decoding: result, as: UTF16.self)
+        return Self.string(result[...])
     }
 
     private mutating func tableOfContents(extra: String) {
@@ -684,11 +655,11 @@ struct Writer {
     }
 
     /// The separator rule and numbered list of referenced footnotes, wrapped in one element so the preview can
-    /// replace it as a unit. Empty when nothing references a footnote.
-    mutating func footnotesSection() -> String {
-        let notes = footnotes
-        guard !notes.order.isEmpty else { return "" }
-        out.removeAll(keepingCapacity: true)
+    /// replace it as a unit. Appends nothing when nothing references a footnote.
+    mutating func footnotesSection() {
+        let notes = snapshot.footnotes
+        guard !notes.order.isEmpty else { return }
+        let start = out.count
         needsSanitizing = false
         raw("<div class=\"footnotes-wrapper\" data-block=\"\(HTMLRenderer.footnotesID)\">\n<hr class=\"footnotes-sep\">\n")
         raw("<section class=\"footnotes\">\n<ol class=\"footnotes-list\">\n")
@@ -711,8 +682,7 @@ struct Writer {
             raw("</li>\n")
         }
         raw("</ol>\n</section>\n</div>\n")
-        let html = String(decoding: out, as: UTF16.self)
-        return needsSanitizing ? Sanitizer.sanitize(html, rewriteURL: renderer.resolveURL) : html
+        sanitizeOutput(from: start)
     }
 
     // MARK: Inlines
@@ -787,7 +757,7 @@ struct Writer {
                 source(inline.range, column: column)
             }
         case .footnoteReference:
-            if let reference = footnotes.references[inline.range.location] {
+            if let reference = snapshot.footnotes.references[inline.range.location] {
                 let id = reference.occurrence == 0 ? "fnref\(reference.number)" : "fnref\(reference.number):\(reference.occurrence)"
                 raw("<sup class=\"footnote-ref\"><a href=\"#fn\(reference.number)\" id=\"\(id)\">[\(reference.number)]</a></sup>")
             } else {

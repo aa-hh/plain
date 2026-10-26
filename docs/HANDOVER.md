@@ -30,7 +30,7 @@ bash scripts/build-app.sh && codesign --verify --deep --strict build/Plain.app
 
 Every build and test goes through `~/.claude/scripts/remote-run <command>` from inside the repo. It shares slots across every session on this Mac and on the mule. `AUDIOUT_REMOTE_LOCAL=1 ~/.claude/scripts/remote-run <command>` forces it to run here, which is the only way to get `build/Plain.app` on this machine; a plain `remote-run bash scripts/build-app.sh` builds on the mule and the app never comes back.
 
-Last results: `swift test` exit 0. `swift test -c release --filter Performance` exit 0 on this Mac. The signed app passes the strict signature check.
+Last results, 26 October on branch `claude/plain-handover-docs-8dc049`: `swift test` exit 0 and `swift test -c release --filter PerformanceTests` exit 0, both on the mule; `PreviewPerformanceTests` exit 0 on this Mac. The app was not rebuilt or signature-checked after the render changes.
 
 ## What was built on 26 October
 
@@ -46,13 +46,13 @@ Two deliberate deviations from the measured reference are recorded in `docs/DESI
 
 ## Open work
 
-**The architecture review is the next thing to pick up.** Its report is at
+The architecture review's report is at
 `/private/var/folders/y4/jkjsf6cs5kd5v1vh_lz95vgc0000gn/T/architecture-review-2026-10-26.html`
-and lists five candidates for the render path. In short:
+and lists five candidates for the render path. Candidates 1 and 2 are done on branch `claude/plain-handover-docs-8dc049`; the rest are open:
 
-1. Render into one buffer instead of 260,000 throwaway strings. Strong. Removes about 92 ms from the full-document render.
-2. Move footnote numbering behind the parser's seam. Strong, and the top pick: it is a document-wide fact computed in the renderer and walked on every flush, and one changed block measures 25.83 ms against a 20 ms limit in a document with footnote definitions and an edit earlier in the text. No test covers that shape.
-3. Delete the sanitiser's second pass. Strong. It costs 53 ms against the renderer's own 35 ms and re-does URL safety, escaping, tag casing and attribute quoting.
+1. Done. The renderer writes a whole call's output into one buffer and turns it into a string through `NSString(characters:length:)`. A profile on the mule put 86% of the full-document render in `String(decoding:as: UTF16.self)`, which the standard library in macOS 26.5 runs one unit at a time; macOS 27 does not. That was the mule's 500 ms. `preview-full-html-ms` went from 497.9 to 79.5 ms on the mule and from 117 to 125 ms to 99.6 ms on this Mac.
+2. Done. `MarkdownDocument` builds footnote numbers once per edit into `Snapshot.footnotes`, walking only blocks flagged as holding a reference; the renderer and `PreviewController` read them. `PreviewPerformanceTests/testOneChangedBlockWithFootnotes` covers the shape. On the mule it measured 19.32 ms before candidate 2, 12.03 ms after it, and 1.83 ms after candidate 1 too.
+3. Delete the sanitiser's second pass. Strong. It costs 53 ms against the renderer's own 35 ms and re-does URL safety, escaping, tag casing and attribute quoting. `Sanitizer.swift` still calls `String(decoding:as: UTF16.self)` in five places, so on the mule it also pays the slow conversion candidate 1 removed from the renderer.
 4. Let the Writer borrow the parser's units. Worth exploring. 0.19 ms, so a seam problem rather than a perf one.
 5. Copy unescaped runs instead of one unit at a time. Speculative.
 
@@ -60,8 +60,6 @@ The issues on the tracker are #1 (provisional table), #2 (heading scale), #3 (de
 
 ## Known issues
 
-- **`preview-full-html-ms` fails on the mule.** 479 to 497 ms there against a 500 ms limit, while this Mac measures 117 ms. `docs/DESIGN.md` records 129.2 ms and says that row ran on this Mac, which agrees. The limit is not machine-relative, which is the defect. Ruled out: SSH (the timer is inside the test process), the machine (the mule is faster at raw Swift, at short runs, and at JavaScriptCore), load, memory, a stale or unoptimised build (clean rebuild, verified `-O -whole-module-optimization`), the deployment target, and core scheduling. Every other Plain performance number is the same or faster on the mule, including `markdown_init_ms` at 293 ms against 306 here, which parses the identical document. The one untested explanation is the compiler patch difference: Swift 6.4.0.33.1 on the mule against 6.4.0.34.1 here, on macOS 26.5 against 27. Confirming it needs the same binary on both machines, which the OS gap blocks.
-- **`preview-one-block-p95-ms` can exceed its 20 ms limit** in a document with footnote definitions and an edit earlier in the text. The existing test passes only because its fixture has neither. Fixed by architecture candidate 2.
 - **`PDFExportTests` is flaky on a cold run.** It has a 5-second expectation and the first run after a build took 8.3 s for the whole suite. It passed on three later runs. Pre-existing.
 - **`EditorPerformanceTests/testKeystrokeAndLoad` is flaky.** Loading a 1 MB file with its visible part styled measured 224 to 302 ms against a 300 ms limit, and 960 ms on a heavily loaded machine. Rerun at low load (`uptime`) before treating a failure as a slowdown.
 - Mac App Store sandbox conflicts, not started: Git marks run `/usr/bin/git`; the `plain` command needs a user-made symlink in `/usr/local/bin`; folder access and file watching need security-scoped bookmarks that persist across launches.
