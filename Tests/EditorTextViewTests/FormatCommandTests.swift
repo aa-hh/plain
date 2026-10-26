@@ -4,8 +4,17 @@ import XCTest
 
 @MainActor
 final class FormatCommandTests: XCTestCase {
-    override func setUp() async throws {
-        NSPasteboard.general.clearContents()
+    /// A private pasteboard, so other processes and test runs cannot change it mid-test.
+    let board = NSPasteboard(name: NSPasteboard.Name("plain-tests-\(UUID().uuidString)"))
+
+    override func tearDown() async throws {
+        board.releaseGlobally()
+    }
+
+    func makeEditor(_ text: String = "", url: URL? = nil) async -> EditorTextView {
+        let editor = await EditorTextViewTests.makeEditor(text, url: url)
+        editor.pasteboard = board
+        return editor
     }
 
     // Spec 160. Turns red if Bold stops wrapping the word at the caret or stops removing markers inside bold text.
@@ -37,7 +46,8 @@ final class FormatCommandTests: XCTestCase {
         await editor.set("[te|xt](u)")
         await editor.command("editor:link")
         XCTAssertEqual(editor.text, "text")
-        NSPasteboard.general.setString("https://c.d/pic.png", forType: .string)
+        board.clearContents()
+        board.setString("https://c.d/pic.png", forType: .string)
         await editor.set("«pic»")
         await editor.command("editor:link")
         XCTAssertEqual(editor.marked, "![pic](https://c.d/pic.png)|")
@@ -100,7 +110,8 @@ final class FormatCommandTests: XCTestCase {
     func testPasteURLOverSelection() async {
         let editor = await makeEditor()
         await editor.set("see «docs» now")
-        NSPasteboard.general.setString("https://x.y", forType: .string)
+        board.clearContents()
+        board.setString("https://x.y", forType: .string)
         editor.paste(nil)
         await editor.settle()
         XCTAssertEqual(editor.text, "see [docs](https://x.y) now")
@@ -113,7 +124,7 @@ final class FormatCommandTests: XCTestCase {
         editor.cut(nil)
         await editor.settle()
         XCTAssertEqual(editor.text, "one\nthree")
-        XCTAssertEqual(NSPasteboard.general.string(forType: .string), "two\n")
+        XCTAssertEqual(board.string(forType: .string), "two\n")
     }
 
     // Spec 93. Turns red if Heading 2 stops toggling the marker on the selected lines.
@@ -140,8 +151,8 @@ final class FormatCommandTests: XCTestCase {
         NSColor.red.setFill()
         NSRect(x: 0, y: 0, width: 4, height: 4).fill()
         image.unlockFocus()
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.writeObjects([image])
+        board.clearContents()
+        board.writeObjects([image])
         editor.paste(nil)
         await editor.settle()
         XCTAssertTrue(editor.text.hasPrefix("![](.pastes/"), editor.text)
@@ -154,7 +165,11 @@ final class FormatCommandTests: XCTestCase {
 
     // MARK: Page
 
-    private func page(_ text: String) async -> EditorTextView { await makeEditor(text, configuration: EditorConfiguration()) }
+    private func page(_ text: String) async -> EditorTextView {
+        let editor = await EditorTextViewTests.makeEditor(text, configuration: EditorConfiguration())
+        editor.pasteboard = board
+        return editor
+    }
 
     private func plain(_ text: String) async -> String {
         let editor = await page(text)
@@ -192,7 +207,6 @@ final class FormatCommandTests: XCTestCase {
         let editor = await page("a **bold** b")
         editor.setSelectedRange(NSRange(location: 2, length: 8))
         editor.copy(nil)
-        let board = NSPasteboard.general
         XCTAssertEqual(board.string(forType: .string), "bold")
         XCTAssertEqual(board.string(forType: EditorTextView.markdownPasteboardType), "**bold**")
         editor.setSelectedRange(NSRange(location: 12, length: 0))
@@ -207,7 +221,7 @@ final class FormatCommandTests: XCTestCase {
         let editor = await page("**b**")
         editor.setSelectedRange(NSRange(location: 0, length: 5))
         editor.copy(nil)
-        XCTAssertEqual(NSPasteboard.general.string(forType: .string), "b")
+        XCTAssertEqual(board.string(forType: .string), "b")
         let source = await makeEditor("")
         source.paste(nil)
         await source.settle()
@@ -219,10 +233,10 @@ final class FormatCommandTests: XCTestCase {
         let editor = await page("**bold** and [here](u)")
         editor.setSelectedRange(NSRange(location: 3, length: 2))
         editor.copy(nil)
-        XCTAssertEqual(NSPasteboard.general.string(forType: EditorTextView.markdownPasteboardType), "**ol**")
+        XCTAssertEqual(board.string(forType: EditorTextView.markdownPasteboardType), "**ol**")
         editor.setSelectedRange(NSRange(location: 15, length: 2))
         editor.copy(nil)
-        XCTAssertEqual(NSPasteboard.general.string(forType: EditorTextView.markdownPasteboardType), "er")
+        XCTAssertEqual(board.string(forType: EditorTextView.markdownPasteboardType), "er")
     }
 
     // States and limits. Turns red if Find on the page stops matching the visible text across hidden markers.
