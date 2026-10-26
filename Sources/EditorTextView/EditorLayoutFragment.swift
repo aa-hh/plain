@@ -125,6 +125,15 @@ final class EditorLayoutFragment: NSTextLayoutFragment {
         return NSRect(x: columnX(at: point) + left, y: point.y, width: columnWidth - left, height: layoutFragmentFrame.height)
     }
 
+    /// `rect` with its top and bottom moved to the nearest device pixel row. Code lines are 22.4 pt tall, so without this
+    /// two neighbouring strips each half cover the row they share and leave a lighter line between them; rounding both
+    /// edges the same way makes the strips meet without overlapping, which keeps the translucent dark panel even.
+    private func rowAligned(_ rect: NSRect, in context: CGContext) -> NSRect {
+        let device = context.convertToDeviceSpace(rect)
+        let top = device.minY.rounded(), bottom = device.maxY.rounded()
+        return context.convertToUserSpace(CGRect(x: device.minX, y: top, width: device.width, height: bottom - top))
+    }
+
     /// The x of the character at `index` (an offset in the paragraph) and the line holding it.
     private func position(of index: Int, at point: CGPoint) -> (x: CGFloat, line: NSTextLineFragment)? {
         guard let line = textLineFragments.first(where: { NSLocationInRange(index, $0.characterRange) || NSMaxRange($0.characterRange) == index })
@@ -155,7 +164,8 @@ final class EditorLayoutFragment: NSTextLayoutFragment {
     /// Panel fills, the table header fill and inline code chips, drawn under the text.
     private func drawPageBackground(_ attributes: NSAttributedString, at point: CGPoint) {
         let frame = layoutFragmentFrame
-        if let slice = attributes.attribute(.plainPagePanel, at: 0, effectiveRange: nil) as? PagePanelSlice, let rect = panelRect(at: point) {
+        if let slice = attributes.attribute(.plainPagePanel, at: 0, effectiveRange: nil) as? PagePanelSlice, var rect = panelRect(at: point) {
+            if let context = NSGraphicsContext.current?.cgContext { rect = rowAligned(rect, in: context) }
             let radius = page.radius
             page.codeBackground.setFill()
             NSGraphicsContext.saveGraphicsState()

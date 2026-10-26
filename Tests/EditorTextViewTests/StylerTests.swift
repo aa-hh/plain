@@ -498,4 +498,25 @@ final class StylerTests: XCTestCase {
             XCTAssertEqual(rect.maxX, editor.columnRight, accuracy: 0.5, text)
         }
     }
+
+    // Turns red if EditorLayoutFragment fills each code line's panel strip at its exact fractional top and bottom, so
+    // two strips each half cover the pixel row they share and leave a lighter line between code lines.
+    func testPageCodePanelHasNoSeamBetweenLines() async throws {
+        let editor = await page("```yaml\na: 1\nb: 2\nc: 3\nd: 4\n```\n")
+        let (first, _) = try layoutFragment(editor, at: 8)
+        let (last, _) = try layoutFragment(editor, at: 23)
+        let top = first.layoutFragmentFrame.midY + editor.textContainerOrigin.y
+        let bottom = last.layoutFragmentFrame.midY + editor.textContainerOrigin.y
+        let rep = try XCTUnwrap(editor.bitmapImageRepForCachingDisplay(in: editor.bounds))
+        editor.cacheDisplay(in: editor.bounds, to: rep)
+        let scale = CGFloat(rep.pixelsHigh) / editor.bounds.height
+        // The panel's left padding, left of the code text, holds nothing but the panel fill.
+        let x = Int((editor.columnLeft + 8) * scale)
+        let expected = try XCTUnwrap(rep.colorAt(x: x, y: Int(top * scale)))
+        for y in Int(top * scale)...Int(bottom * scale) {
+            let colour = try XCTUnwrap(rep.colorAt(x: x, y: y))
+            XCTAssertEqual(colour, expected, "pixel row \(y) between code lines")
+            if colour != expected { break }
+        }
+    }
 }
