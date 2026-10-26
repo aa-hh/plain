@@ -69,7 +69,7 @@ final class EditorLayoutFragment: NSTextLayoutFragment {
             let size = string.size()
             let lineFrame = line.typographicBounds
             let y = point.y + lineFrame.minY + (lineFrame.height - size.height) / 2
-            string.draw(at: NSPoint(x: point.x - size.width - 2, y: y))
+            string.draw(at: NSPoint(x: columnX(at: point) - size.width - 2, y: y))
         }
 
         var lineBreaks: [NSRange] = []
@@ -86,7 +86,7 @@ final class EditorLayoutFragment: NSTextLayoutFragment {
         }
 
         if let overlay {
-            let rect = NSRect(x: point.x + overlay.left, y: point.y + overlay.topSpacing, width: overlay.size.width, height: overlay.size.height)
+            let rect = NSRect(x: columnX(at: point) + overlay.left, y: point.y + overlay.topSpacing, width: overlay.size.width, height: overlay.size.height)
             overlay.image.draw(in: rect, from: .zero, operation: .sourceOver, fraction: 1, respectFlipped: true, hints: nil)
             if overlay.selected {
                 Tokens.selectionBlue.withAlphaComponent(0.7).setFill()
@@ -105,6 +105,33 @@ final class EditorLayoutFragment: NSTextLayoutFragment {
     /// The baseline of `line` in drawing coordinates.
     private func baseline(_ line: NSTextLineFragment, at point: CGPoint) -> CGFloat {
         point.y + line.typographicBounds.minY + line.glyphOrigin.y
+    }
+
+    /// The column's left edge in drawing coordinates. TextKit 2 puts the paragraph's first-line indent into the fragment
+    /// frame's x, so `point.x` is the text's left edge and this is the column's.
+    private func columnX(at point: CGPoint) -> CGFloat { point.x - layoutFragmentFrame.minX }
+
+    /// The bullet, number, footnote or checkbox box of a list item, from the column's left edge; nil without a marker.
+    func markerBox(at point: CGPoint) -> NSRect? {
+        guard let attributes, attributes.length > 0,
+              let marker = attributes.attribute(.plainPageMarker, at: 0, effectiveRange: nil) as? PageMarker,
+              let line = textLineFragments.first else { return nil }
+        return NSRect(x: columnX(at: point) + marker.x, y: baseline(line, at: point) - page.bodySize, width: page.markerBox, height: page.bodySize)
+    }
+
+    /// The code panel strip of this fragment, from `panelLeft` to the column's right edge; nil when not in a panel.
+    func panelRect(at point: CGPoint) -> NSRect? {
+        guard let left = panelLeft else { return nil }
+        return NSRect(x: columnX(at: point) + left, y: point.y, width: columnWidth - left, height: layoutFragmentFrame.height)
+    }
+
+    /// `rect` with its top and bottom moved to the nearest device pixel row. Code lines are 22.4 pt tall, so without this
+    /// two neighbouring strips each half cover the row they share and leave a lighter line between them; rounding both
+    /// edges the same way makes the strips meet without overlapping, which keeps the translucent dark panel even.
+    private func rowAligned(_ rect: NSRect, in context: CGContext) -> NSRect {
+        let device = context.convertToDeviceSpace(rect)
+        let top = device.minY.rounded(), bottom = device.maxY.rounded()
+        return context.convertToUserSpace(CGRect(x: device.minX, y: top, width: device.width, height: bottom - top))
     }
 
     /// The x of the character at `index` (an offset in the paragraph) and the line holding it.
@@ -137,9 +164,8 @@ final class EditorLayoutFragment: NSTextLayoutFragment {
     /// Panel fills, the table header fill and inline code chips, drawn under the text.
     private func drawPageBackground(_ attributes: NSAttributedString, at point: CGPoint) {
         let frame = layoutFragmentFrame
-        if let slice = attributes.attribute(.plainPagePanel, at: 0, effectiveRange: nil) as? PagePanelSlice {
-            let left = panelLeft ?? 0
-            let rect = NSRect(x: point.x + left, y: point.y, width: columnWidth - left, height: frame.height)
+        if let slice = attributes.attribute(.plainPagePanel, at: 0, effectiveRange: nil) as? PagePanelSlice, var rect = panelRect(at: point) {
+            if let context = NSGraphicsContext.current?.cgContext { rect = rowAligned(rect, in: context) }
             let radius = page.radius
             page.codeBackground.setFill()
             NSGraphicsContext.saveGraphicsState()
@@ -155,7 +181,7 @@ final class EditorLayoutFragment: NSTextLayoutFragment {
         if let row = attributes.attribute(.plainPageTableRow, at: 0, effectiveRange: nil) as? PageTableRow, row.isHeader,
            let first = row.columnEdges.first, let last = row.columnEdges.last {
             page.codeBackground.setFill()
-            NSRect(x: point.x + first, y: point.y, width: last - first, height: frame.height).fill()
+            NSRect(x: columnX(at: point) + first, y: point.y, width: last - first, height: frame.height).fill()
         }
         let code = EditorFonts.code(page.codeSize)
         attributes.enumerateAttribute(.plainPageChip, in: NSRange(location: 0, length: attributes.length)) { value, run, _ in
@@ -179,9 +205,9 @@ final class EditorLayoutFragment: NSTextLayoutFragment {
     private func drawPageForeground(_ attributes: NSAttributedString, at point: CGPoint) {
         let frame = layoutFragmentFrame
         let firstLine = textLineFragments.first
-        if let marker = attributes.attribute(.plainPageMarker, at: 0, effectiveRange: nil) as? PageMarker, let line = firstLine {
+        if let marker = attributes.attribute(.plainPageMarker, at: 0, effectiveRange: nil) as? PageMarker, let line = firstLine,
+           let box = markerBox(at: point) {
             let base = baseline(line, at: point)
-            let box = NSRect(x: point.x + marker.x, y: base - page.bodySize, width: page.markerBox, height: page.bodySize)
             switch marker.kind {
             case .bullet:
                 drawCentred("•", font: .systemFont(ofSize: page.bodySize * 1.5), colour: page.text, in: box.minX, width: box.width, baseline: base)
@@ -211,21 +237,21 @@ final class EditorLayoutFragment: NSTextLayoutFragment {
         if let depth = attributes.attribute(.plainPageQuote, at: 0, effectiveRange: nil) as? Int, depth > 0 {
             page.text.setFill()
             for level in 1...depth {
-                NSRect(x: point.x + CGFloat(level - 1) * page.quoteIndent, y: point.y, width: page.quoteBar, height: frame.height).fill()
+                NSRect(x: columnX(at: point) + CGFloat(level - 1) * page.quoteIndent, y: point.y, width: page.quoteBar, height: frame.height).fill()
             }
         }
         if attributes.attribute(.plainPageDivider, at: 0, effectiveRange: nil) != nil {
             page.border.setFill()
-            NSRect(x: point.x, y: point.y + page.dividerSpace, width: columnWidth, height: 1).fill()
+            NSRect(x: columnX(at: point), y: point.y + page.dividerSpace, width: columnWidth, height: 1).fill()
         }
         if let row = attributes.attribute(.plainPageTableRow, at: 0, effectiveRange: nil) as? PageTableRow,
            let first = row.columnEdges.first, let last = row.columnEdges.last {
             page.border.setFill()
             for edge in row.columnEdges {
-                NSRect(x: point.x + min(edge, last - 1), y: point.y, width: 1, height: frame.height).fill()
+                NSRect(x: columnX(at: point) + min(edge, last - 1), y: point.y, width: 1, height: frame.height).fill()
             }
-            NSRect(x: point.x + first, y: point.y, width: last - first, height: 1).fill()
-            NSRect(x: point.x + first, y: point.y + frame.height - 1, width: last - first, height: 1).fill()
+            NSRect(x: columnX(at: point) + first, y: point.y, width: last - first, height: 1).fill()
+            NSRect(x: columnX(at: point) + first, y: point.y + frame.height - 1, width: last - first, height: 1).fill()
         }
         attributes.enumerateAttribute(.plainPageFootnote, in: NSRange(location: 0, length: attributes.length)) { value, run, _ in
             guard let number = value as? String, let (x, line) = position(of: run.location, at: point) else { return }
@@ -236,7 +262,7 @@ final class EditorLayoutFragment: NSTextLayoutFragment {
         if let slice = attributes.attribute(.plainPagePanel, at: 0, effectiveRange: nil) as? PagePanelSlice, let label = slice.label {
             let font = NSFont.systemFont(ofSize: page.codeHeaderSize)
             let string = NSAttributedString(string: label, attributes: [.font: font, .foregroundColor: page.textSecondary])
-            let origin = NSPoint(x: point.x + page.codePadSides, y: point.y + page.codePadTop)
+            let origin = NSPoint(x: columnX(at: point) + (panelLeft ?? 0) + page.codePadSides, y: point.y + page.codePadTop)
             string.draw(at: origin)
             let size = string.size()
             Self.chevronImage.draw(in: NSRect(x: origin.x + size.width + 4, y: origin.y + (size.height - page.codeHeaderSize) / 2,
@@ -248,7 +274,7 @@ final class EditorLayoutFragment: NSTextLayoutFragment {
             let font = NSFont.systemFont(ofSize: page.captionSize)
             let string = NSAttributedString(string: note, attributes: [.font: font, .foregroundColor: page.textSecondary])
             let left = key == .plainPageCaption ? (overlay?.left ?? 0) : 0
-            string.draw(at: NSPoint(x: point.x + left, y: point.y + frame.height - 21 + (21 - string.size().height) / 2))
+            string.draw(at: NSPoint(x: columnX(at: point) + left, y: point.y + frame.height - 21 + (21 - string.size().height) / 2))
         }
     }
 

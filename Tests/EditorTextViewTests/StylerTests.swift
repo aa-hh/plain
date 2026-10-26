@@ -438,4 +438,85 @@ final class StylerTests: XCTestCase {
         editor.setSelectedRange(NSRange(location: 2, length: 0))
         XCTAssertEqual(editor.styler.pageSelections, [NSRange(location: 2, length: 0)])
     }
+
+    // Turns red if a code block's language label or its click area sits at the column edge instead of inside a list
+    // item's indented panel.
+    func testCodeLabelInListItemSitsInsideIndentedPanel() async {
+        let editor = await page("- item\n\n  ```swift\n  let x = 1\n  ```")
+        XCTAssertEqual((editor.attribute(.plainPagePanel, at: 8) as? PagePanelSlice)?.label, "Swift")
+        let left = (editor.attribute(.paragraphStyle, at: 19) as? NSParagraphStyle)!.headIndent - Tokens.page.codePadSides
+        XCTAssertGreaterThan(left, 0)
+        let first = editor.rect(forCharacterRange: NSRange(location: 8, length: 0))
+        let y = first.minY + Tokens.page.codePadTop + 9
+        func click(_ x: CGFloat, missesLabel: Bool) {
+            let point = windowPoint(x: x, y: y, in: editor)
+            // A click that misses the label runs the text view's own click loop, which waits for this mouse-up; a label
+            // click reads no events, so a mouse-up posted for it would stay queued and reach a later test's click.
+            if missesLabel {
+                editor.window?.postEvent(NSEvent.mouseEvent(with: .leftMouseUp, location: point, modifierFlags: [], timestamp: 0,
+                                                            windowNumber: editor.window?.windowNumber ?? 0, context: nil, eventNumber: 0,
+                                                            clickCount: 1, pressure: 1)!, atStart: false)
+            }
+            editor.mouseDown(with: NSEvent.mouseEvent(with: .leftMouseDown, location: point, modifierFlags: [], timestamp: 0,
+                                                      windowNumber: editor.window?.windowNumber ?? 0, context: nil, eventNumber: 0,
+                                                      clickCount: 1, pressure: 1)!)
+        }
+        click(editor.columnLeft + Tokens.page.codePadSides + 2, missesLabel: true)
+        XCTAssertNil(editor.slashMenu.languageHost)
+        click(editor.columnLeft + left + Tokens.page.codePadSides + 2, missesLabel: false)
+        XCTAssertNotNil(editor.slashMenu.languageHost)
+    }
+
+    private func layoutFragment(_ editor: EditorTextView, at offset: Int) throws -> (EditorLayoutFragment, CGPoint) {
+        let manager = try XCTUnwrap(editor.textLayoutManager)
+        let range = try XCTUnwrap(editor.textRange(for: NSRange(location: offset, length: 0)))
+        manager.ensureLayout(for: range)
+        let fragment = try XCTUnwrap(manager.textLayoutFragment(for: range.location) as? EditorLayoutFragment)
+        let frame = fragment.layoutFragmentFrame
+        return (fragment, CGPoint(x: frame.minX + editor.textContainerOrigin.x, y: frame.minY + editor.textContainerOrigin.y))
+    }
+
+    // Turns red if EditorLayoutFragment adds the item's paragraph indent to the bullet box, drawing it at the text instead of the margin.
+    func testPageBulletBoxStartsAtColumnLeft() async throws {
+        for text in ["- item\n", "- item one\n\n  ```swift\n  let x = 1\n  ```\n"] {
+            let editor = await page(text)
+            let (fragment, point) = try layoutFragment(editor, at: 0)
+            let box = try XCTUnwrap(fragment.markerBox(at: point), text)
+            XCTAssertEqual(box.minX, editor.columnLeft, accuracy: 0.5, text)
+            XCTAssertEqual(box.width, Tokens.page.markerBox, accuracy: 0.5, text)
+        }
+    }
+
+    // Turns red if EditorLayoutFragment adds the code line's paragraph indent to the panel strip, so it starts at the code text and overruns the column's right edge.
+    func testPageCodePanelSpansColumnFromPanelLeft() async throws {
+        let cases: [(String, Int, CGFloat)] = [("```yaml\na: 1\n```\n", 8, 0), ("- item\n\n  ```swift\n  let x = 1\n  ```\n", 19, 28)]
+        for (text, offset, indent) in cases {
+            let editor = await page(text)
+            let (fragment, point) = try layoutFragment(editor, at: offset)
+            let rect = try XCTUnwrap(fragment.panelRect(at: point), text)
+            XCTAssertEqual(rect.minX, editor.columnLeft + indent, accuracy: 0.5, text)
+            XCTAssertEqual(rect.maxX, editor.columnRight, accuracy: 0.5, text)
+        }
+    }
+
+    // Turns red if EditorLayoutFragment fills each code line's panel strip at its exact fractional top and bottom, so
+    // two strips each half cover the pixel row they share and leave a lighter line between code lines.
+    func testPageCodePanelHasNoSeamBetweenLines() async throws {
+        let editor = await page("```yaml\na: 1\nb: 2\nc: 3\nd: 4\n```\n")
+        let (first, _) = try layoutFragment(editor, at: 8)
+        let (last, _) = try layoutFragment(editor, at: 23)
+        let top = first.layoutFragmentFrame.midY + editor.textContainerOrigin.y
+        let bottom = last.layoutFragmentFrame.midY + editor.textContainerOrigin.y
+        let rep = try XCTUnwrap(editor.bitmapImageRepForCachingDisplay(in: editor.bounds))
+        editor.cacheDisplay(in: editor.bounds, to: rep)
+        let scale = CGFloat(rep.pixelsHigh) / editor.bounds.height
+        // The panel's left padding, left of the code text, holds nothing but the panel fill.
+        let x = Int((editor.columnLeft + 8) * scale)
+        let expected = try XCTUnwrap(rep.colorAt(x: x, y: Int(top * scale)))
+        for y in Int(top * scale)...Int(bottom * scale) {
+            let colour = try XCTUnwrap(rep.colorAt(x: x, y: y))
+            XCTAssertEqual(colour, expected, "pixel row \(y) between code lines")
+            if colour != expected { break }
+        }
+    }
 }

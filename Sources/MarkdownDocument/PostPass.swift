@@ -322,7 +322,22 @@ struct PostPass {
     mutating func frontMatterBlock(_ lines: Range<Int>) -> Block {
         let last = lines.upperBound - 1
         let range = NSRange(location: source.lineStart(lines.lowerBound), length: source.lineEnd(last) - source.lineStart(lines.lowerBound))
-        let markers = [lines.lowerBound, last].map { NSRange(location: source.lineStart($0), length: source.lineEnd($0) - source.lineStart($0)) }
+        var markers = [lines.lowerBound, last].map { NSRange(location: source.lineStart($0), length: source.lineEnd($0) - source.lineStart($0)) }
+        for line in (lines.lowerBound + 1)..<last {
+            let start = source.lineStart(line)
+            let end = source.lineEnd(line)
+            guard start < end, ![32, 9, 45].contains(units[start]),
+                  let colon = (start..<end).first(where: { units[$0] == 58 }), colon > start else { continue }
+            var valueStart = colon + 1
+            while valueStart < end, units[valueStart] == 32 { valueStart += 1 }
+            markers.append(NSRange(location: colon, length: valueStart - colon))
+            var valueEnd = end
+            while valueEnd > valueStart, units[valueEnd - 1] == 32 { valueEnd -= 1 }
+            if valueEnd - valueStart >= 2, units[valueStart] == 91, units[valueEnd - 1] == 93 {
+                markers.append(NSRange(location: valueStart, length: 1))
+                markers.append(NSRange(location: valueEnd - 1, length: 1))
+            }
+        }
         return make(.frontMatter, range, lines, markers: markers)
     }
 

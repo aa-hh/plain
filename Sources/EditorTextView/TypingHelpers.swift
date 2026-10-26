@@ -117,6 +117,7 @@ extension EditorTextView {
             return false
         }
         if isPage {
+            if wrapSelection(c, selection: selection) || pair(c, selection: selection) { return true }
             pageReplace(selection, with: c)
             return true
         }
@@ -208,7 +209,7 @@ extension EditorTextView {
         let line = lineContents(at: offset)
         guard offset == NSMaxRange(line) else { return false }
         let text = nsText.substring(with: line)
-        guard (try? /^[ \t]*([-*+]|[0-9]{1,9}[.)])$/.wholeMatch(in: text)) != nil, isParagraphAbove(line.location) else { return false }
+        guard LineSyntax.bareListMarker(in: text) != nil, isParagraphAbove(line.location) else { return false }
         perform([(NSRange(location: line.location, length: 0), "\n"), (NSRange(location: offset, length: 0), " ")],
                 select: [NSRange(location: offset + 2, length: 0)])
         return true
@@ -413,13 +414,13 @@ extension EditorTextView {
 
     private func pair(_ c: String, selection: NSRange) -> Bool {
         guard isMarkdownFile || !["*", "_"].contains(c), let closer = Self.pairs[c] else { return false }
-        if isPage, c == "`" { return false }
         if selection.length > 0 {
             if (c == "*" || c == "_") && isInCodeOrMath(selection.location) { return false }
             let inner = nsText.substring(with: selection)
             perform([(selection, c + inner + closer)], select: [NSRange(location: selection.location + 1, length: selection.length)])
             return true
         }
+        if isPage, c == "`" { return false }
         if c == "*" || c == "_" { return false }
         let offset = selection.location
         let next = character(at: offset)

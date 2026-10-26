@@ -29,7 +29,10 @@ final class FlavourTests: XCTestCase {
         let snapshot = await parse("---\ntitle: x\n---\n\n# Hi")
         XCTAssertEqual(snapshot.blocks.map(\.kind), [.frontMatter, .atxHeading(level: 1)])
         XCTAssertEqual(snapshot.blocks[0].lineRange, 0..<3)
-        XCTAssertEqual(snapshot.blocks[0].markerRanges.map { text(snapshot, $0) }, ["---", "---"])
+        XCTAssertEqual(snapshot.blocks[0].markerRanges.map { text(snapshot, $0) }, ["---", "---", ": "])
+        // Turns red if the front matter block stops recording the colon run and list brackets of its key lines.
+        let keys = await parse("---\ntitle: x\ntags: [a, b]\n- item\nplain\n---\n\n# Hi")
+        XCTAssertEqual(keys.blocks[0].markerRanges.map { text(keys, $0) }, ["---", "---", ": ", ": ", "[", "]"])
     }
 
     func testMathBlocks() async {

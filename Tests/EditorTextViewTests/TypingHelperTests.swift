@@ -210,6 +210,23 @@ final class TypingHelperTests: XCTestCase {
         XCTAssertNotNil(list.attribute(.plainPageMarker, at: 0))
     }
 
+    // Turns red if typing an opener over a page selection replaces the selection instead of wrapping it.
+    func testPageTypingOverSelectionWrapsLikeSourceView() async {
+        let paren = await page("word")
+        paren.setSelectedRange(NSRange(location: 0, length: 4))
+        await paren.type("(")
+        XCTAssertEqual(paren.marked, "(«word»)")
+        let tick = await page("word")
+        tick.setSelectedRange(NSRange(location: 0, length: 4))
+        await tick.type("`")
+        XCTAssertEqual(tick.text, "`word`")
+        XCTAssertNotNil(tick.attribute(.plainPageChip, at: 1))
+        let star = await page("word")
+        star.setSelectedRange(NSRange(location: 0, length: 4))
+        await star.type("*")
+        XCTAssertEqual(star.text, "*word*")
+    }
+
     // Settled decision 11. Turns red if `- ` typed under a paragraph stops getting a blank line above, so it stays a
     // setext underline or paragraph text instead of a list.
     func testPageListMarkerUnderParagraph() async {

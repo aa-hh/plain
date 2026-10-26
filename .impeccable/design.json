@@ -1,6 +1,6 @@
 {
   "schemaVersion": 2,
-  "generatedAt": "2026-10-26T08:51:29.017293+00:00",
+  "generatedAt": "2026-10-26T18:32:37.502105+00:00",
   "title": "Design System: Plain",
   "extensions": {
     "colorMeta": {
@@ -338,6 +338,138 @@
           "oklch(72% 0.028 67)",
           "oklch(84% 0.028 67)",
           "oklch(95% 0.028 67)"
+        ]
+      },
+      "page-accent": {
+        "role": "primary",
+        "displayName": "Page accent",
+        "canonical": "#2F80ED",
+        "tonalRamp": [
+          "oklch(15% 0.182 257)",
+          "oklch(26% 0.182 257)",
+          "oklch(38% 0.182 257)",
+          "oklch(49% 0.182 257)",
+          "oklch(61% 0.182 257)",
+          "oklch(72% 0.182 257)",
+          "oklch(84% 0.182 257)",
+          "oklch(95% 0.182 257)"
+        ]
+      },
+      "page-background": {
+        "role": "neutral",
+        "displayName": "Page background",
+        "canonical": "#FFFFFF",
+        "tonalRamp": [
+          "oklch(15% 0.000 90)",
+          "oklch(26% 0.000 90)",
+          "oklch(38% 0.000 90)",
+          "oklch(49% 0.000 90)",
+          "oklch(61% 0.000 90)",
+          "oklch(72% 0.000 90)",
+          "oklch(84% 0.000 90)",
+          "oklch(95% 0.000 90)"
+        ]
+      },
+      "page-border": {
+        "role": "neutral",
+        "displayName": "Page border",
+        "canonical": "#E6E6E3",
+        "tonalRamp": [
+          "oklch(15% 0.004 106)",
+          "oklch(26% 0.004 106)",
+          "oklch(38% 0.004 106)",
+          "oklch(49% 0.004 106)",
+          "oklch(61% 0.004 106)",
+          "oklch(72% 0.004 106)",
+          "oklch(84% 0.004 106)",
+          "oklch(95% 0.004 106)"
+        ]
+      },
+      "page-code-background": {
+        "role": "neutral",
+        "displayName": "Page code background",
+        "canonical": "#F6F5F2",
+        "tonalRamp": [
+          "oklch(15% 0.004 91)",
+          "oklch(26% 0.004 91)",
+          "oklch(38% 0.004 91)",
+          "oklch(49% 0.004 91)",
+          "oklch(61% 0.004 91)",
+          "oklch(72% 0.004 91)",
+          "oklch(84% 0.004 91)",
+          "oklch(95% 0.004 91)"
+        ]
+      },
+      "page-hover": {
+        "role": "neutral",
+        "displayName": "Page hover"
+      },
+      "page-menu-background": {
+        "role": "neutral",
+        "displayName": "Page menu background",
+        "canonical": "#FFFFFF",
+        "tonalRamp": [
+          "oklch(15% 0.000 90)",
+          "oklch(26% 0.000 90)",
+          "oklch(38% 0.000 90)",
+          "oklch(49% 0.000 90)",
+          "oklch(61% 0.000 90)",
+          "oklch(72% 0.000 90)",
+          "oklch(84% 0.000 90)",
+          "oklch(95% 0.000 90)"
+        ]
+      },
+      "page-selection": {
+        "role": "neutral",
+        "displayName": "Page selection"
+      },
+      "page-shadow": {
+        "role": "neutral",
+        "displayName": "Page shadow"
+      },
+      "page-text": {
+        "role": "neutral",
+        "displayName": "Page text",
+        "canonical": "#2D2C29",
+        "tonalRamp": [
+          "oklch(15% 0.006 92)",
+          "oklch(26% 0.006 92)",
+          "oklch(38% 0.006 92)",
+          "oklch(49% 0.006 92)",
+          "oklch(61% 0.006 92)",
+          "oklch(72% 0.006 92)",
+          "oklch(84% 0.006 92)",
+          "oklch(95% 0.006 92)"
+        ]
+      },
+      "page-text-secondary": {
+        "role": "neutral",
+        "displayName": "Page text secondary",
+        "canonical": "#75746F",
+        "tonalRamp": [
+          "oklch(15% 0.008 97)",
+          "oklch(26% 0.008 97)",
+          "oklch(38% 0.008 97)",
+          "oklch(49% 0.008 97)",
+          "oklch(61% 0.008 97)",
+          "oklch(72% 0.008 97)",
+          "oklch(84% 0.008 97)",
+          "oklch(95% 0.008 97)"
+        ]
+      },
+      "page-text-tertiary": {
+        "role": "neutral",
+        "displayName": "Page text tertiary",
+        "canonical": "#A8A7A3",
+        "tonalRamp": [
+          "oklch(15% 0.006 95)",
+          "oklch(26% 0.006 95)",
+          "oklch(38% 0.006 95)",
+          "oklch(49% 0.006 95)",
+          "oklch(61% 0.006 95)",
+          "oklch(72% 0.006 95)",
+          "oklch(84% 0.006 95)",
+          "oklch(95% 0.006 95)"
         ]
       }
     },

@@ -13,6 +13,8 @@ struct FindState {
     /// On the page: the visible text Find searches and each unit's source offset, built once per snapshot and
     /// column width rather than once per query.
     var visible: (version: TextVersion, columnWidth: CGFloat, string: NSString, offsets: [Int])?
+    /// On the page: the `fromSelection` of a query typed while a parse was pending, nil when none is waiting.
+    var pendingFromSelection: Bool?
 }
 
 /// Find in file (spec 298–313). No Replace.
@@ -75,7 +77,11 @@ extension EditorTextView {
         guard var state = find else { return }
         state.query = query
         if isPage, snapshot == nil {
-            // A parse is pending: keep the previous matches; `received` finds the new query once the snapshot arrives.
+            // A parse is pending: drop the old query's matches; `received` finds the new query once the snapshot arrives.
+            state.matches = []
+            state.current = nil
+            state.pendingFromSelection = fromSelection
+            clearFindHighlights()
             find = state
             return
         }
@@ -115,25 +121,8 @@ extension EditorTextView {
         let width = styler.pageColumnWidth
         if state.visible?.version != snapshot.version || state.visible?.columnWidth != width {
             let whole = NSRange(location: 0, length: nsText.length)
-            let map = VisibleText.map(text: nsText, snapshot: snapshot, range: whole, columnWidth: width)
-            // Only characters shown on the page are searched: the stand-ins Copy writes for hidden Markdown (bullets,
-            // boxes, footnote numbers, tabs, separator breaks) each map to an offset inside a hidden range, where no
-            // shown character is, so they are dropped.
-            let hidden = HiddenRanges.list(in: whole, snapshot: snapshot, text: nsText, columnWidth: width, caret: nil)
-            let mapped = Array(map.string.utf16)
-            var units: [unichar] = []
-            var offsets: [Int] = []
-            units.reserveCapacity(mapped.count)
-            offsets.reserveCapacity(map.offsets.count)
-            var next = 0
-            for (unit, offset) in zip(mapped, map.offsets) {
-                while next < hidden.count, NSMaxRange(hidden[next].range) <= offset { next += 1 }
-                if next < hidden.count, NSLocationInRange(offset, hidden[next].range) { continue }
-                units.append(unit)
-                offsets.append(offset)
-            }
-            offsets.append(map.offsets.last ?? whole.length)
-            state.visible = (snapshot.version, width, NSString(characters: units, length: units.count), offsets)
+            let searchable = VisibleText.searchable(text: nsText, snapshot: snapshot, range: whole, columnWidth: width)
+            state.visible = (snapshot.version, width, searchable.string, searchable.offsets)
         }
         guard let visible = state.visible else { return nil }
         return Self.findMatches(query, in: visible.string).map { match in
@@ -143,9 +132,27 @@ extension EditorTextView {
         }
     }
 
+    /// After one replacement. On the page while a parse is pending, the matches move with the edit so none points past
+    /// the text; the snapshot's arrival re-finds them.
+    func findTextEdited(location: Int, oldLength: Int, newLength: Int) {
+        guard var state = find else { return }
+        if isPage, snapshot == nil {
+            state.matches = state.matches.map { Self.map($0, location: location, oldLength: oldLength, newLength: newLength) }
+            find = state
+            return
+        }
+        findTextChanged()
+    }
+
     func findTextChanged() {
         guard var state = find else { return }
         if isPage, snapshot == nil { return }
+        if let fromSelection = state.pendingFromSelection {
+            state.pendingFromSelection = nil
+            find = state
+            findQueryChanged(state.query, fromSelection: fromSelection)
+            return
+        }
         let previous = state.current.map { state.matches[$0].location }
         state.matches = pageFindMatches(state.query, state: &state) ?? Self.findMatches(state.query, in: nsText)
         state.current = state.matches.isEmpty ? nil : (previous.flatMap { p in state.matches.firstIndex { $0.location >= p } } ?? 0)
