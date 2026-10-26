@@ -11,8 +11,9 @@ final class FormatCommandTests: XCTestCase {
         board.releaseGlobally()
     }
 
-    func makeEditor(_ text: String = "", url: URL? = nil) async -> EditorTextView {
-        let editor = await EditorTextViewTests.makeEditor(text, url: url)
+    func makeEditor(_ text: String = "", url: URL? = nil,
+                    configuration: EditorConfiguration = EditorConfiguration(showMarkdownSource: true)) async -> EditorTextView {
+        let editor = await EditorTextViewTests.makeEditor(text, url: url, configuration: configuration)
         editor.pasteboard = board
         return editor
     }
