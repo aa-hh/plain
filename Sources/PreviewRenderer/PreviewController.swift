@@ -5,7 +5,7 @@ import Observation
 /// Renders blocks off the main thread.
 actor RenderQueue {
     func render(_ blocks: [Block], in snapshot: Snapshot, with renderer: HTMLRenderer)
-        -> (blocks: [BlockID: String], footnotes: String, footnoteOrder: [String]) {
+        -> (blocks: [BlockID: String], footnotes: String) {
         renderer.html(for: blocks, in: snapshot)
     }
 }
@@ -38,7 +38,6 @@ public final class PreviewController {
     /// `data-block` values in the page, in order.
     @ObservationIgnored private(set) var pageOrder: [String] = []
     @ObservationIgnored private var footnotesHTML = ""
-    @ObservationIgnored private var footnoteOrder: [String] = []
     @ObservationIgnored private var generation = 0
 
     /// `page` defaults to a `WebPreviewPage` showing `themeURL`.
@@ -134,7 +133,7 @@ public final class PreviewController {
         let current = generation
         var render = pendingChanged
         pendingChanged = []
-        if next.referenceDefinitions != previous.referenceDefinitions {
+        if next.referenceDefinitions != previous.referenceDefinitions || next.footnotes.order != previous.footnotes.order {
             await replaceAll(with: next)
             return
         }
@@ -154,10 +153,6 @@ public final class PreviewController {
         let blocks = next.blocks.filter { render.contains($0.id) }
         let result = await queue.render(blocks, in: next, with: renderer)
         guard current == generation else { return }
-        if result.footnoteOrder != footnoteOrder {
-            await replaceAll(with: next)
-            return
-        }
 
         let shown = Set(pageOrder)
         var html: [String: String] = [:]
@@ -219,7 +214,6 @@ public final class PreviewController {
         snapshot = next
         pageOrder = newOrder
         footnotesHTML = result.footnotes
-        footnoteOrder = result.footnoteOrder
         if !patches.isEmpty || !removals.isEmpty { page.send(.update(patches: patches, removals: removals)) }
     }
 
@@ -241,7 +235,6 @@ public final class PreviewController {
         self.snapshot = snapshot
         pageOrder = order
         footnotesHTML = result.footnotes
-        footnoteOrder = result.footnoteOrder
         page.send(.replaceAll(html))
     }
 

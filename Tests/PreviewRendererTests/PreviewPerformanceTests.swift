@@ -58,18 +58,40 @@ final class PreviewPerformanceTests: XCTestCase {
         let snapshot = await MarkdownDocument(text: Self.fixture()).currentSnapshot()
         let renderer = HTMLRenderer()
         let block = snapshot.blocks[snapshot.blocks.count / 2 + 1]
-        _ = renderer.html(for: block, in: snapshot)
+        let p95 = Self.p95 { _ = renderer.html(for: block, in: snapshot) }
+        print("PERF preview-one-block-p95-ms \(String(format: "%.2f", p95))")
+        XCTAssertLessThanOrEqual(p95, 20)
+        #endif
+    }
+
+    // Turns red if one preview flush (one changed block plus the footnotes section) of the 1 MB document takes over
+    // 20 ms (p95) in a release build, when every section cites a footnote and an edit near the top moved every block.
+    func testOneChangedBlockWithFootnotes() async throws {
+        #if DEBUG
+        throw XCTSkip("Performance thresholds apply to release builds only")
+        #else
+        let text = Self.fixture().replacingOccurrences(of: "emoji.", with: "emoji[^n].")
+        let document = MarkdownDocument(text: "Intro[^n].\n\n" + text + "[^n]: The note.\n")
+        let snapshot = await document.snapshot(atLeast: document.apply(TextEdit(range: NSRange(location: 0, length: 0), replacement: "x")))
+        let renderer = HTMLRenderer()
+        let block = snapshot.blocks[snapshot.blocks.count / 2 + 1]
+        let p95 = Self.p95 { _ = renderer.html(for: [block], in: snapshot) }
+        print("PERF preview-one-block-footnotes-p95-ms \(String(format: "%.2f", p95))")
+        XCTAssertLessThanOrEqual(p95, 20)
+        #endif
+    }
+
+    /// Milliseconds, 95th percentile of 50 timed runs after one untimed run.
+    static func p95(_ body: () -> Void) -> Double {
+        body()
         var samples: [Double] = []
         for _ in 0..<50 {
             let start = ContinuousClock.now
-            _ = renderer.html(for: block, in: snapshot)
+            body()
             let elapsed = ContinuousClock.now - start
             samples.append(Double(elapsed.components.seconds) * 1000 + Double(elapsed.components.attoseconds) / 1e15)
         }
         samples.sort()
-        let p95 = samples[Int(Double(samples.count) * 0.95) - 1]
-        print("PERF preview-one-block-p95-ms \(String(format: "%.2f", p95))")
-        XCTAssertLessThanOrEqual(p95, 20)
-        #endif
+        return samples[Int(Double(samples.count) * 0.95) - 1]
     }
 }

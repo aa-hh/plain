@@ -185,6 +185,7 @@ final class BlockStorage: Sendable {
     /// Plain text of a heading, used for its slug.
     let headingText: String?
     let containsHeading: Bool
+    let containsFootnoteReference: Bool
     /// Label (normalised) and destination of a reference definition.
     let definition: (label: String, destination: String)?
 
@@ -200,7 +201,71 @@ final class BlockStorage: Sendable {
         self.attributes = attributes
         self.headingText = headingText
         self.containsHeading = headingText != nil || children.contains { $0.storage.containsHeading }
+        func hasReference(_ inlines: [Inline]) -> Bool {
+            inlines.contains { if case .footnoteReference = $0.kind { true } else { hasReference($0.children) } }
+        }
+        self.containsFootnoteReference = hasReference(inlines) || children.contains { $0.storage.containsFootnoteReference }
         self.definition = definition
+    }
+}
+
+/// One footnote reference: its label's number and how many references to that label came before it.
+public struct FootnoteReference: Hashable, Sendable {
+    public var number: Int
+    public var occurrence: Int
+    public init(number: Int, occurrence: Int) {
+        self.number = number
+        self.occurrence = occurrence
+    }
+}
+
+/// Footnote numbers for the whole document. Only references to a defined label count; labels are numbered in the
+/// order their first reference appears, references inside footnote definitions included.
+public struct Footnotes: Sendable {
+    /// Labels in the order their first reference appears; a label's number is its index plus one.
+    public var order: [String] = []
+    /// Reference offset to its number and occurrence.
+    public var references: [Int: FootnoteReference] = [:]
+    /// How many references each label has.
+    public var counts: [String: Int] = [:]
+    /// The first definition of each label.
+    public var definitions: [String: Block] = [:]
+
+    init() {}
+
+    /// Walks only the blocks holding a reference, reading their stored inlines plus the distance they moved, so an
+    /// edit near the top does not copy every later block's inlines.
+    init(blocks: [Block]) {
+        for block in blocks {
+            if case .footnoteDefinition(let label) = block.kind, definitions[label] == nil { definitions[label] = block }
+        }
+        guard !definitions.isEmpty else { return }
+        var numbers: [String: Int] = [:]
+        func visit(_ inlines: [Inline], delta: Int) {
+            for inline in inlines {
+                if case .footnoteReference(let label) = inline.kind, definitions[label] != nil {
+                    let number: Int
+                    if let existing = numbers[label] {
+                        number = existing
+                    } else {
+                        order.append(label)
+                        number = order.count
+                        numbers[label] = number
+                    }
+                    let occurrence = counts[label, default: 0]
+                    counts[label] = occurrence + 1
+                    references[inline.range.location + delta] = FootnoteReference(number: number, occurrence: occurrence)
+                }
+                visit(inline.children, delta: delta)
+            }
+        }
+        func visit(_ blocks: [Block], delta: Int) {
+            for block in blocks where block.storage.containsFootnoteReference {
+                visit(block.storage.inlines, delta: delta + block.delta)
+                visit(block.storage.children, delta: delta + block.delta)
+            }
+        }
+        visit(blocks, delta: 0)
     }
 }
 
@@ -213,6 +278,7 @@ public struct Snapshot: Sendable {
     public let headings: [Heading]
     /// Normalised label (lower case, white space collapsed) to destination; the first definition of a label wins.
     public let referenceDefinitions: [String: String]
+    public let footnotes: Footnotes
     /// Top-level blocks that are new or changed since the previous snapshot.
     public let changedBlockIDs: Set<BlockID>
     /// Top-level blocks of the previous snapshot that no longer exist.

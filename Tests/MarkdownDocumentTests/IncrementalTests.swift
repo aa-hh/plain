@@ -64,6 +64,11 @@ final class IncrementalTests: XCTestCase {
         XCTAssertEqual(describe(snapshot), describe(fresh), message, file: file, line: line)
         XCTAssertEqual(snapshot.headings.map(\.slug), fresh.headings.map(\.slug), message, file: file, line: line)
         XCTAssertEqual(snapshot.referenceDefinitions, fresh.referenceDefinitions, message, file: file, line: line)
+        XCTAssertEqual(snapshot.footnotes.order, fresh.footnotes.order, message, file: file, line: line)
+        XCTAssertEqual(snapshot.footnotes.counts, fresh.footnotes.counts, message, file: file, line: line)
+        XCTAssertEqual(snapshot.footnotes.references, fresh.footnotes.references, message, file: file, line: line)
+        XCTAssertEqual(snapshot.footnotes.definitions.mapValues(\.range), fresh.footnotes.definitions.mapValues(\.range),
+                       message, file: file, line: line)
     }
 
     private func type(_ text: String, at offset: Int, in document: MarkdownDocument, _ model: NSMutableString) async {
@@ -133,6 +138,26 @@ final class IncrementalTests: XCTestCase {
         let model = NSMutableString(string: text)
         let document = MarkdownDocument(text: text)
         await check(document, model, TextEdit(range: NSRange(location: 4, length: 0), replacement: "\n"), "blank line")
+    }
+
+    func testFootnoteNumbering() async {
+        // Fails if footnote numbers stop following the order of first references, references inside quotes and
+        // definitions stop counting, or numbers and offsets drift from a fresh parse after an edit.
+        let text = "One[^b] two[^a] [^none].\n\n> Quoted[^b]\n\n[^a]: First.\n[^b]: Second[^a].\n"
+        let model = NSMutableString(string: text)
+        let document = MarkdownDocument(text: text)
+        let first = await document.currentSnapshot()
+        XCTAssertEqual(first.footnotes.order, ["b", "a"])
+        XCTAssertEqual(first.footnotes.counts, ["a": 2, "b": 2])
+        let quoted = (text as NSString).range(of: "Quoted[^b]").location + 6
+        XCTAssertEqual(first.footnotes.references[quoted], FootnoteReference(number: 1, occurrence: 1))
+        await check(document, model, TextEdit(range: NSRange(location: 0, length: 0), replacement: "Zero[^a] "), "new first reference")
+        let edited = await document.currentSnapshot()
+        XCTAssertEqual(edited.footnotes.order, ["a", "b"])
+        await check(document, model, TextEdit(range: NSRange(location: model.length, length: 0), replacement: "\nMore text.\n"),
+                    "edit after the references")
+        let definition = model.range(of: "[^b]:").location
+        await check(document, model, TextEdit(range: NSRange(location: definition, length: 5), replacement: "[^c]:"), "rename definition")
     }
 
     func testUnderlineUnderParagraph() async {
