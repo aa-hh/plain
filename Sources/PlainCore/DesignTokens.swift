@@ -97,6 +97,8 @@ public struct PreviewThemeTokens: Sendable {
     public var codeBlockSize: String
     public var codeBlockLineHeight: String
     public var codeBlockColor: String
+    /// CSS `border` shorthand on the code block wrapper. "none" where the theme draws no border.
+    public var codeBlockBorder: String
     /// Prism token name to CSS colour.
     public var codeTokens: [String: String]
     public var quoteBorder: String
@@ -291,6 +293,7 @@ public enum Tokens {
         codeBlockSize: "13.6px",
         codeBlockLineHeight: "28.8px",
         codeBlockColor: "#444444",
+        codeBlockBorder: "none",
         codeTokens: previewCodeTokenColours,
         quoteBorder: "2.6px solid #DDDDDD",
         quotePadding: "0 0 0 13px",
@@ -340,6 +343,7 @@ public enum Tokens {
         codeBlockSize: "13.6px",
         codeBlockLineHeight: "19.72px",
         codeBlockColor: "#333333",
+        codeBlockBorder: "none",
         codeTokens: previewCodeTokenColours,
         quoteBorder: "4px solid #DDDDDD",
         quotePadding: "0 15px",
@@ -389,6 +393,7 @@ public enum Tokens {
         codeBlockSize: "12.35px",
         codeBlockLineHeight: "24.7px",
         codeBlockColor: "#AAAAAA",
+        codeBlockBorder: "none",
         codeTokens: previewDarkCodeTokenColours,
         quoteBorder: "2.6px solid #333333",
         quotePadding: "0 0 0 13px",
@@ -407,5 +412,109 @@ public enum Tokens {
         printFontSize: "14px"
     )
 
-    public static let previewThemes: [PreviewThemeTokens] = [previewDefault, previewGitHub, previewDark]
+    /// Preview theme for the Claude pair, measured against the Claude desktop app's assistant messages.
+    /// Colours are Plain's own choices: the reference records the palette as unrecovered.
+    public static let previewClaude = PreviewThemeTokens(
+        name: "Claude",
+        background: "#FFFFFF",
+        bodyFont: "system-ui, sans-serif",
+        bodySize: "15px",
+        bodyLineHeight: "22.5px",
+        bodyColor: "#1F1F1F",
+        contentMaxWidth: "626px",
+        paddingVertical: "100.8px",
+        paddingSides: "80px",
+        paragraphMargin: "22.5px 0",
+        headingFont: "system-ui, sans-serif",
+        headingWeight: "600",
+        headingSizes: ["17px", "17px", "15px", "15px", "15px", "15px"],
+        headingMargins: ["12px 0 -4px", "12px 0 -4px", "8px 0 -4px", "8px 0 -4px", "8px 0 -4px", "8px 0 -4px"],
+        linkColor: "#0B5FCE",
+        inlineCodeFont: "inherit",
+        inlineCodeSize: "1em",
+        inlineCodeColor: "inherit",
+        inlineCodeBackground: "rgba(0,0,0,0.05)",
+        inlineCodeRadius: "4px",
+        inlineCodePadding: "1px 4px",
+        inlineCodeMargin: "0",
+        codeBlockBackground: "rgba(0,0,0,0.04)",
+        codeBlockRadius: "8px",
+        codeBlockPadding: "14px",
+        codeBlockMargin: "22.5px 0",
+        codeBlockFont: "\"Roboto Mono\", monospace",
+        codeBlockSize: "14px",
+        codeBlockLineHeight: "22.75px",
+        codeBlockColor: "inherit",
+        codeBlockBorder: "0.5px solid rgba(0,0,0,0.12)",
+        codeTokens: previewCodeTokenColours,
+        quoteBorder: "4px solid rgba(0,0,0,0.1)",
+        quotePadding: "0 0 0 16px",
+        quoteColor: "#6B6B6B",
+        quoteMargin: "22.5px 40px 22.5px 0",
+        listPadding: "32px",
+        tableRuleColor: "rgba(0,0,0,0.12)",
+        tableCellPadding: "8px 16px 8px 0",
+        rule: "0.5px solid rgba(0,0,0,0.12)",
+        ruleMargin: "12px 6px",
+        mathBlockSize: "15px",
+        mathBlockAlign: "left",
+        mathBlockPadding: "11.25px 0",
+        mathBlockMargin: "22.5px 0",
+        selection: nil,
+        printFontSize: "14px"
+    )
+
+    public static let previewClaudeDark = PreviewThemeTokens(
+        name: "Claude Dark",
+        background: "#1A1A1A",
+        bodyFont: "system-ui, sans-serif",
+        bodySize: "15px",
+        bodyLineHeight: "22.5px",
+        bodyColor: "#EDEDED",
+        contentMaxWidth: "626px",
+        paddingVertical: "100.8px",
+        paddingSides: "80px",
+        paragraphMargin: "22.5px 0",
+        headingFont: "system-ui, sans-serif",
+        headingWeight: "600",
+        headingSizes: ["17px", "17px", "15px", "15px", "15px", "15px"],
+        headingMargins: ["12px 0 -4px", "12px 0 -4px", "8px 0 -4px", "8px 0 -4px", "8px 0 -4px", "8px 0 -4px"],
+        linkColor: "#7AB3FF",
+        inlineCodeFont: "inherit",
+        inlineCodeSize: "1em",
+        inlineCodeColor: "inherit",
+        inlineCodeBackground: "rgba(255,255,255,0.06)",
+        inlineCodeRadius: "4px",
+        inlineCodePadding: "1px 4px",
+        inlineCodeMargin: "0",
+        codeBlockBackground: "rgba(255,255,255,0.05)",
+        codeBlockRadius: "8px",
+        codeBlockPadding: "14px",
+        codeBlockMargin: "22.5px 0",
+        codeBlockFont: "\"Roboto Mono\", monospace",
+        codeBlockSize: "14px",
+        codeBlockLineHeight: "22.75px",
+        codeBlockColor: "inherit",
+        codeBlockBorder: "0.5px solid rgba(255,255,255,0.14)",
+        codeTokens: previewDarkCodeTokenColours,
+        quoteBorder: "4px solid rgba(255,255,255,0.12)",
+        quotePadding: "0 0 0 16px",
+        quoteColor: "#9B9B9B",
+        quoteMargin: "22.5px 40px 22.5px 0",
+        listPadding: "32px",
+        tableRuleColor: "rgba(255,255,255,0.14)",
+        tableCellPadding: "8px 16px 8px 0",
+        rule: "0.5px solid rgba(255,255,255,0.14)",
+        ruleMargin: "12px 6px",
+        mathBlockSize: "15px",
+        mathBlockAlign: "left",
+        mathBlockPadding: "11.25px 0",
+        mathBlockMargin: "22.5px 0",
+        selection: nil,
+        printFontSize: "14px"
+    )
+
+    public static let previewThemes: [PreviewThemeTokens] = [
+        previewDefault, previewGitHub, previewDark, previewClaude, previewClaudeDark,
+    ]
 }

@@ -31,9 +31,11 @@ public struct Themes: Sendable {
     /// File names (without `.css`) and tokens of the built-in themes.
     public static let builtIn: [(name: String, tokens: PreviewThemeTokens)] = [
         ("Default", Tokens.previewDefault), ("GitHub", Tokens.previewGitHub), ("Dark", Tokens.previewDark),
+        ("Claude", Tokens.previewClaude), ("Claude Dark", Tokens.previewClaudeDark),
     ]
 
-    /// Writes `Default.css`, `GitHub.css` and `Dark.css`, replacing files of those names.
+    /// Writes `Default.css`, `GitHub.css`, `Dark.css`, `Claude.css` and `Claude Dark.css`, replacing files of
+    /// those names.
     public func writeBuiltIns() throws {
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         for theme in Self.builtIn {
@@ -101,6 +103,7 @@ public struct Themes: Sendable {
     /// `.content`, then elements, KaTeX, Prism tokens and print size.
     public static func css(for theme: PreviewThemeTokens) -> String {
         let isGitHub = theme.name == "GitHub"
+        let isClaude = theme.name == "Claude" || theme.name == "Claude Dark"
         var css = """
         /* \(theme.name) preview theme for Plain. Plain rewrites this file on every launch; copy it under another name to make your own. */
         :host {
@@ -158,6 +161,7 @@ public struct Themes: Sendable {
         pre {
           background: var(--code-background);
           border-radius: \(theme.codeBlockRadius);
+          border: \(theme.codeBlockBorder);
           padding: \(theme.codeBlockPadding);
           margin: \(theme.codeBlockMargin);
           overflow-x: auto;
@@ -199,6 +203,19 @@ public struct Themes: Sendable {
             hr { height: 4px; padding: 0; margin: \(theme.ruleMargin); background: #E7E7E7; border: 0; border-bottom: 1px solid #EEEEEE; }
 
             """
+        } else if isClaude {
+            // Claude draws only cell bottom borders: the header's is 1.5x the body cell's opacity.
+            let headerRule = theme.name == "Claude" ? "rgba(0,0,0,0.18)" : "rgba(255,255,255,0.21)"
+            css += """
+            table { width: 100%; border-collapse: collapse; }
+            th, td { padding: \(theme.tableCellPadding); text-align: left; vertical-align: top; border-bottom: 0.5px solid var(--rule-color); }
+            th { font-weight: 600; border-bottom-color: \(headerRule); }
+            hr { border: 0; border-top: \(theme.rule); margin: \(theme.ruleMargin); height: 0; }
+            strong, b { font-weight: 500; }
+            li + li { margin-top: 4px; }
+            ul ul, ul ol, ol ul, ol ol { padding-bottom: 4px; margin-top: 4px; }
+
+            """
         } else {
             css += """
             table { width: 100%; border-collapse: collapse; border-top: 3.9px solid var(--rule-color); border-bottom: 3.9px solid var(--rule-color); }
@@ -228,9 +245,12 @@ public struct Themes: Sendable {
             css += ".token.\(token) { color: \(colour); }\n"
         }
         if let selection = theme.selection { css += "::selection { background: \(selection); }\n" }
+        // A code block's header (language and copy button) is screen-only.
+        var printRules = ":host { font-size: \(theme.printFontSize); }"
+        if isClaude { printRules += "\n  .code-header { display: none; }" }
         css += """
         @media print {
-          :host { font-size: \(theme.printFontSize); }
+          \(printRules)
         }
 
         """

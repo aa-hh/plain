@@ -34,7 +34,7 @@ let package = Package(
             .product(name: "Yams", package: "Yams"),
         ]),
         .executableTarget(name: "Plain", dependencies: ["PlainAppKit"], resources: [.copy("Resources")]),
-        .testTarget(name: "PlainCoreTests", dependencies: ["PlainCore", "PlainVendor"]),
+        .testTarget(name: "PlainCoreTests", dependencies: ["PlainCore", "PlainVendor", "PreviewRenderer"]),
         .testTarget(name: "MarkdownDocumentTests", dependencies: ["MarkdownDocument"]),
         .testTarget(name: "PlainDocumentTests", dependencies: ["PlainDocument"]),
         .testTarget(name: "FolderIndexTests", dependencies: ["FolderIndex"]),
