@@ -512,7 +512,18 @@ struct Writer {
                 if text.utf16.count >= openLength && text.utf16.allSatisfy({ $0 == fence }) { segments.removeLast() }
             }
         }
-        raw("<pre" + extra + "><code" + (language.map { " class=\"language-\(escapeHTML($0))\"" } ?? "") + ">")
+        let name = language.map { escapeHTML($0) }
+        let codeTag = "<code" + (name.map { " class=\"language-\($0)\"" } ?? "") + ">"
+        // `extra` stays on the outermost element, because the preview patches and scroll-syncs against it.
+        if fenced {
+            raw("<div class=\"code-block\"" + extra + " role=\"group\" aria-label=\"" + (name.map { $0 + " code" } ?? "Code") + "\">\n")
+            raw("<div class=\"code-header\">")
+            if let name { raw("<span class=\"code-language\">" + name + "</span>") }
+            raw("<button class=\"code-copy\" type=\"button\" aria-label=\"Copy code\">Copy</button></div>\n")
+            raw("<pre>" + codeTag)
+        } else {
+            raw("<pre" + extra + ">" + codeTag)
+        }
         let tokens = block.codeTokens ?? []
         var tokenIndex = 0
         for segment in segments {
@@ -539,6 +550,7 @@ struct Writer {
             out.append(10)
         }
         raw("</code></pre>\n")
+        if fenced { raw("</div>\n") }
     }
 
     /// The text between the `$$` lines, without the outer `$` signs spec 474 removes.

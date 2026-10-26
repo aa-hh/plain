@@ -55,6 +55,7 @@ public let previewBaseCSS = """
 @media print {
   .content { max-width: none !important; height: auto; padding: 48px 32px !important; }
   pre, pre code { white-space: pre-wrap !important; overflow-wrap: anywhere; }
+  .code-header { display: none; }
   * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
 }
 """
@@ -146,6 +147,33 @@ let previewScript = """
     event.preventDefault();
     if (href.charAt(0) === '#') { plain.scrollToAnchor(decodeURIComponent(href.slice(1))); return; }
     window.webkit.messageHandlers.link.postMessage(href);
+  });
+  root.addEventListener('click', function (event) {
+    var button = event.target.closest ? event.target.closest('.code-copy') : null;
+    if (!button) return;
+    var wrapper = button.closest('.code-block');
+    var code = wrapper ? wrapper.querySelector('pre code') : null;
+    if (!code) return;
+    var text = code.textContent;
+    function copied() {
+      button.textContent = 'Copied';
+      window.setTimeout(function () { button.textContent = 'Copy'; }, 1500);
+    }
+    function selectAndCopy() {
+      var range = document.createRange();
+      range.selectNodeContents(code);
+      var selection = window.getSelection();
+      selection.removeAllRanges();
+      selection.addRange(range);
+      var ok = document.execCommand('copy');
+      selection.removeAllRanges();
+      if (ok) copied();
+    }
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(copied, selectAndCopy);
+    } else {
+      selectAndCopy();
+    }
   });
   root.addEventListener('change', function (event) {
     var box = event.target;

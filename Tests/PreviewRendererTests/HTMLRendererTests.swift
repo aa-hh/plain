@@ -151,7 +151,7 @@ final class HTMLRendererTests: XCTestCase {
     // Turns red if known languages lose Prism token spans or unknown ones stop being escaped plain text (spec 478).
     func testFencedCode() async {
         let html = await renderHTML("```swift\nlet x = \"<a>\"\n```\n\n```nosuchlang\n<b>\n```")
-        XCTAssertTrue(html.contains("<pre data-block="), html)
+        XCTAssertTrue(html.contains("<div class=\"code-block\" data-block="), html)
         XCTAssertTrue(html.contains("<code class=\"language-swift\"><span class=\"token keyword\">let</span>"), html)
         XCTAssertTrue(html.contains("&quot;&lt;a&gt;&quot;"), html)
         XCTAssertTrue(html.contains("<code class=\"language-nosuchlang\">&lt;b&gt;\n</code>"), html)
@@ -160,9 +160,60 @@ final class HTMLRendererTests: XCTestCase {
     // Turns red if Mermaid blocks get special treatment instead of showing as a highlighted code block (spec 479).
     func testMermaidIsACodeBlock() async {
         let html = await renderHTML("```mermaid\ngraph TD\n```")
-        XCTAssertTrue(html.contains("<pre data-block=\"0\" data-line=\"0\"><code class=\"language-mermaid\">"), html)
+        XCTAssertTrue(html.contains("<div class=\"code-block\" data-block=\"0\" data-line=\"0\" role=\"group\" aria-label=\"mermaid code\">"), html)
+        XCTAssertTrue(html.contains("<pre><code class=\"language-mermaid\">"), html)
         XCTAssertTrue(html.contains("graph</span> TD\n</code></pre>"), html)
         XCTAssertFalse(html.contains("<svg"), html)
+    }
+
+    // Turns red if a fenced code block loses the wrapper, the header, the language label or the copy button
+    // (docs/claude-markdown-reference.md, section 3, "Code blocks").
+    func testFencedCodeBlockHeader() async {
+        let html = await renderHTML("```swift\nlet x = 1\n```")
+        XCTAssertTrue(html.contains("<div class=\"code-block\" data-block=\"0\" data-line=\"0\" role=\"group\" aria-label=\"swift code\">"), html)
+        XCTAssertTrue(html.contains("<div class=\"code-header\"><span class=\"code-language\">swift</span>"), html)
+        XCTAssertTrue(html.contains("<button class=\"code-copy\" type=\"button\" aria-label=\"Copy code\">Copy</button></div>"), html)
+        XCTAssertTrue(html.contains("</div>\n<pre><code class=\"language-swift\">"), html)
+    }
+
+    // Turns red if a fenced block with no language gains a language label or loses its copy button.
+    func testFencedCodeBlockWithoutLanguage() async {
+        let html = await renderHTML("```\nplain\n```")
+        XCTAssertTrue(html.contains("<div class=\"code-block\" data-block=\"0\" data-line=\"0\" role=\"group\" aria-label=\"Code\">"), html)
+        XCTAssertTrue(html.contains("<button class=\"code-copy\" type=\"button\" aria-label=\"Copy code\">Copy</button>"), html)
+        XCTAssertFalse(html.contains("code-language"), html)
+        XCTAssertTrue(html.contains("<pre><code>plain\n</code></pre>\n</div>\n"), html)
+    }
+
+    // Turns red if an indented code block gains the wrapper or the header.
+    func testIndentedCodeBlockHasNoHeader() async {
+        let html = await renderHTML("    let x = 1")
+        XCTAssertTrue(html.contains("<pre data-block=\"0\" data-line=\"0\"><code>let x = 1\n</code></pre>\n"), html)
+        XCTAssertFalse(html.contains("code-block"), html)
+        XCTAssertFalse(html.contains("code-copy"), html)
+    }
+
+    // Turns red if the language string reaches the markup unescaped. The fence's info string keeps its first
+    // word only, so the language here is `x"`.
+    func testCodeBlockLanguageIsEscaped() async {
+        let html = await renderHTML("```x\" onmouseover=alert(1)\ny\n```")
+        XCTAssertTrue(html.contains("aria-label=\"x&quot; code\""), html)
+        XCTAssertTrue(html.contains("<span class=\"code-language\">x&quot;</span>"), html)
+        XCTAssertTrue(html.contains("<code class=\"language-x&quot;\">y\n</code>"), html)
+        XCTAssertFalse(html.contains("x\""), html)
+    }
+
+    // Turns red if the code text changes: same escaping, same Prism token spans, only the wrapper around it is new.
+    func testFencedCodeBlockBodyIsUnchanged() async {
+        let html = await renderHTML("```swift\nlet x = \"<a>\"\n```\n\n```nosuchlang\n<b>\n```")
+        XCTAssertTrue(html.contains("<pre><code class=\"language-swift\"><span class=\"token keyword\">let</span> x <span class=\"token operator\">=</span> <span class=\"token string\">&quot;&lt;a&gt;&quot;</span>\n</code></pre>"), html)
+        XCTAssertTrue(html.contains("<pre><code class=\"language-nosuchlang\">&lt;b&gt;\n</code></pre>"), html)
+    }
+
+    // Turns red if the code block header starts showing in print output or in the exported PDF.
+    func testPrintStylesHideTheCodeHeader() {
+        let printRules = previewBaseCSS.components(separatedBy: "@media print {").last!
+        XCTAssertTrue(printRules.contains(".code-header { display: none; }"), previewBaseCSS)
     }
 
     // Turns red if top-level elements lose their `data-block` or `data-line` attributes.
