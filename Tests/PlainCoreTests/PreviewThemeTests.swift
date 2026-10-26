@@ -89,14 +89,15 @@ final class PreviewThemeTests: XCTestCase {
     }
 
     // Turns red if the Claude pair's heading scale drifts from the measured content scale, or the body
-    // size moves with it. Both themes carry the same scale.
+    // size moves with it. Both themes carry the same scale. h4 is semibold so h3 and h4 do not collapse
+    // into one level; the measured classes give both the same size and weight (issue 2).
     func testClaudeHeadingSizes() {
         for tokens in [Tokens.previewClaude, Tokens.previewClaudeDark] {
             let css = Themes.css(for: tokens)
             XCTAssertTrue(css.contains("h1 { font-size: 22px; margin: 12px 0 -4px; font-weight: bold; }"), tokens.name)
             XCTAssertTrue(css.contains("h2 { font-size: 18px; margin: 12px 0 -4px; font-weight: bold; }"), tokens.name)
             XCTAssertTrue(css.contains("h3 { font-size: 16px; margin: 8px 0 -4px; font-weight: bold; }"), tokens.name)
-            XCTAssertTrue(css.contains("h4 { font-size: 16px; margin: 8px 0 -4px; font-weight: bold; }"), tokens.name)
+            XCTAssertTrue(css.contains("h4 { font-size: 16px; margin: 8px 0 -4px; font-weight: 600; }"), tokens.name)
             XCTAssertTrue(css.contains("h5 { font-size: 14px; margin: 8px 0 -4px; font-weight: bold; }"), tokens.name)
             XCTAssertTrue(css.contains("h6 { font-size: 14px; margin: 8px 0 -4px; font-weight: 600; }"), tokens.name)
             // Body text is untouched: 15px with a 22.5px line height.
