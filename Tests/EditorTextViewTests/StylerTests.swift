@@ -466,4 +466,36 @@ final class StylerTests: XCTestCase {
         click(editor.columnLeft + left + Tokens.page.codePadSides + 2, missesLabel: false)
         XCTAssertNotNil(editor.slashMenu.languageHost)
     }
+
+    private func layoutFragment(_ editor: EditorTextView, at offset: Int) throws -> (EditorLayoutFragment, CGPoint) {
+        let manager = try XCTUnwrap(editor.textLayoutManager)
+        let range = try XCTUnwrap(editor.textRange(for: NSRange(location: offset, length: 0)))
+        manager.ensureLayout(for: range)
+        let fragment = try XCTUnwrap(manager.textLayoutFragment(for: range.location) as? EditorLayoutFragment)
+        let frame = fragment.layoutFragmentFrame
+        return (fragment, CGPoint(x: frame.minX + editor.textContainerOrigin.x, y: frame.minY + editor.textContainerOrigin.y))
+    }
+
+    // Turns red if EditorLayoutFragment adds the item's paragraph indent to the bullet box, drawing it at the text instead of the margin.
+    func testPageBulletBoxStartsAtColumnLeft() async throws {
+        for text in ["- item\n", "- item one\n\n  ```swift\n  let x = 1\n  ```\n"] {
+            let editor = await page(text)
+            let (fragment, point) = try layoutFragment(editor, at: 0)
+            let box = try XCTUnwrap(fragment.markerBox(at: point), text)
+            XCTAssertEqual(box.minX, editor.columnLeft, accuracy: 0.5, text)
+            XCTAssertEqual(box.width, Tokens.page.markerBox, accuracy: 0.5, text)
+        }
+    }
+
+    // Turns red if EditorLayoutFragment adds the code line's paragraph indent to the panel strip, so it starts at the code text and overruns the column's right edge.
+    func testPageCodePanelSpansColumnFromPanelLeft() async throws {
+        let cases: [(String, Int, CGFloat)] = [("```yaml\na: 1\n```\n", 8, 0), ("- item\n\n  ```swift\n  let x = 1\n  ```\n", 19, 28)]
+        for (text, offset, indent) in cases {
+            let editor = await page(text)
+            let (fragment, point) = try layoutFragment(editor, at: offset)
+            let rect = try XCTUnwrap(fragment.panelRect(at: point), text)
+            XCTAssertEqual(rect.minX, editor.columnLeft + indent, accuracy: 0.5, text)
+            XCTAssertEqual(rect.maxX, editor.columnRight, accuracy: 0.5, text)
+        }
+    }
 }
