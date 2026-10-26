@@ -128,6 +128,18 @@ extension EditorTextView {
         super.mouseMoved(with: event)
         updateLinkCursor(at: event.locationInWindow)
         imageHoverCursor(at: event.locationInWindow)
+        if isPage {
+            blockHandleMouseMoved(event)
+            tableGridMouseMoved(event)
+        }
+    }
+
+    public override func mouseExited(with event: NSEvent) {
+        super.mouseExited(with: event)
+        if isPage {
+            blockHandleMouseMoved(event)
+            tableGridMouseMoved(event)
+        }
     }
 
     private func updateLinkCursor(at windowPoint: NSPoint?) {

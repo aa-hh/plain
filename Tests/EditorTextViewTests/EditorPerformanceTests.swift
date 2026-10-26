@@ -109,4 +109,140 @@ final class EditorPerformanceTests: XCTestCase {
         XCTAssertLessThanOrEqual(ms, 50)
         #endif
     }
+
+    static func milliseconds(_ duration: Duration) -> Double {
+        Double(duration.components.attoseconds) / 1e15 + Double(duration.components.seconds) * 1000
+    }
+
+    /// Waits until a measured editor's background restyle reaches the file's last code block, so it does not run into
+    /// the next test's timing.
+    static func drain(_ editor: EditorTextView) async {
+        let last = (editor.text as NSString).range(of: "let value", options: .backwards).location
+        _ = await waitUntil(timeout: 10) { editor.attribute(editor.isPage ? .plainPagePanel : .plainBand, at: last) != nil }
+    }
+
+    // Turns red if opening the 1 MB fixture with Show Markdown Source on takes over 300 ms to the first styled screen.
+    func testLoadSourceView() async throws {
+        #if DEBUG
+        throw XCTSkip("Performance runs in release only")
+        #else
+        let text = Self.fixture
+        let markdown = MarkdownDocument(text: text)
+        _ = await markdown.currentSnapshot()
+        let document = Document(text: text)
+        let start = ContinuousClock.now
+        let editor = EditorTextView(document: document, markdown: markdown, configuration: EditorConfiguration(showMarkdownSource: true))
+        host(editor)
+        await editor.settle()
+        editor.textLayoutManager?.textViewportLayoutController.layoutViewport()
+        let ms = Self.milliseconds(ContinuousClock.now - start)
+        print("PERF editor-load-visible-styled-source-ms \(String(format: "%.1f", ms))")
+        await Self.drain(editor)
+        XCTAssertLessThanOrEqual(ms, 300)
+        #endif
+    }
+
+    // Turns red if a caret move on the page (snapping through hidden ranges) takes over 8 ms p95 to a laid-out viewport.
+    func testCaretMove() async throws {
+        #if DEBUG
+        throw XCTSkip("Performance runs in release only")
+        #else
+        let text = Self.fixture
+        let markdown = MarkdownDocument(text: text)
+        let editor = EditorTextView(document: Document(text: text), markdown: markdown)
+        host(editor)
+        await editor.settle()
+        let line = (text as NSString).lineRange(for: NSRange(location: (text as NSString).length / 2, length: 0))
+        editor.setSelectedRange(NSRange(location: line.location, length: 0))
+        editor.scrollRangeToVisible(NSRange(location: line.location, length: 0))
+        editor.textLayoutManager?.textViewportLayoutController.layoutViewport()
+        await editor.settle()
+        var times: [Double] = []
+        for index in 0..<200 {
+            let start = ContinuousClock.now
+            if index % 2 == 0 { editor.moveDown(nil) } else { editor.moveRight(nil) }
+            editor.textLayoutManager?.textViewportLayoutController.layoutViewport()
+            times.append(Self.milliseconds(ContinuousClock.now - start))
+        }
+        let p95 = Self.percentile95(times)
+        print("PERF editor-caret-move-p95-ms \(String(format: "%.3f", p95))")
+        await Self.drain(editor)
+        XCTAssertLessThanOrEqual(p95, 8)
+        #endif
+    }
+
+    // Turns red if Select All then Copy on the 1 MB page takes over 50 ms, for example when the separator pass in
+    // `HiddenRanges.addSeparators` checks each blank line against every hidden range again.
+    func testSelectAllCopyPage() async throws {
+        #if DEBUG
+        throw XCTSkip("Performance runs in release only")
+        #else
+        let text = Self.fixture
+        let editor = EditorTextView(document: Document(text: text), markdown: MarkdownDocument(text: text))
+        host(editor)
+        await editor.settle()
+        let start = ContinuousClock.now
+        editor.selectAll(nil)
+        editor.copy(nil)
+        let ms = Self.milliseconds(ContinuousClock.now - start)
+        print("PERF editor-select-all-page-ms \(String(format: "%.1f", ms))")
+        XCTAssertEqual(NSPasteboard.general.string(forType: EditorTextView.markdownPasteboardType)?.utf16.count, (text as NSString).length)
+        await Self.drain(editor)
+        XCTAssertLessThanOrEqual(ms, 50)
+        #endif
+    }
+
+    // Turns red if one query typed into the open Find bar on the 1 MB page takes over 50 ms, for example when each
+    // query rebuilds the page's visible text through `HiddenRanges.list` instead of reusing it for the same snapshot.
+    func testFindPage() async throws {
+        #if DEBUG
+        throw XCTSkip("Performance runs in release only")
+        #else
+        let text = Self.fixture
+        let editor = EditorTextView(document: Document(text: text), markdown: MarkdownDocument(text: text))
+        host(editor)
+        await editor.settle()
+        editor.openFind()
+        let start = ContinuousClock.now
+        editor.findQueryChanged("bold")
+        let ms = Self.milliseconds(ContinuousClock.now - start)
+        print("PERF editor-find-page-ms \(String(format: "%.1f", ms))")
+        XCTAssertFalse(editor.find?.matches.isEmpty ?? true)
+        editor.closeFind()
+        await Self.drain(editor)
+        XCTAssertLessThanOrEqual(ms, 50)
+        #endif
+    }
+
+    // Turns red if moving a 200-line block in the 1 MB fixture takes over 50 ms from the edit to a laid-out viewport.
+    func testBlockMove() async throws {
+        #if DEBUG
+        throw XCTSkip("Performance runs in release only")
+        #else
+        // The first chunk ends with its code block's closing fence; the new block goes after it, between blank lines.
+        let chunkEnd = (Self.fixture as NSString).range(of: "```\n## ").location + 4
+        let block = "\n```\n" + (0..<200).map { "line \($0) of the moved block" }.joined(separator: "\n") + "\n```\n\n"
+        let text = (Self.fixture as NSString).replacingCharacters(in: NSRange(location: chunkEnd, length: 0), with: block)
+        let markdown = MarkdownDocument(text: text)
+        let editor = EditorTextView(document: Document(text: text), markdown: markdown)
+        host(editor)
+        await editor.settle()
+        let nsText = text as NSString
+        guard let snapshot = editor.snapshot,
+              let moved = PageBlocks.block(at: chunkEnd + 6, snapshot: snapshot, text: nsText),
+              let target = PageBlocks.block(at: nsText.lineRange(for: NSRange(location: nsText.length / 2, length: 0)).location, snapshot: snapshot, text: nsText)
+                ?? PageBlocks.blocks(in: snapshot, text: nsText).first(where: { $0.range.location >= nsText.length / 2 }) else {
+            return XCTFail("blocks not found")
+        }
+        XCTAssertEqual(moved.kind, .code)
+        let change = PageBlocks.move(moved, before: target, text: nsText)
+        let start = ContinuousClock.now
+        editor.apply(change.edits, caret: change.caret)
+        editor.textLayoutManager?.textViewportLayoutController.layoutViewport()
+        let ms = Self.milliseconds(ContinuousClock.now - start)
+        print("PERF editor-block-move-ms \(String(format: "%.1f", ms))")
+        await editor.settle()
+        XCTAssertLessThanOrEqual(ms, 50)
+        #endif
+    }
 }

@@ -13,7 +13,7 @@ prism_version="1.30.0"
 gemoji_tag="v4.1.0"
 roboto_commit="895ec691990d041dd727c7b5afa3ce56525d98e6"
 lucide_version="1.57.0"
-lucide_icons="folder folder-open file-text file-image file heading-1 heading-2 heading-3 heading-4 heading-5 heading-6 arrow-left arrow-right chevron-right chevron-down check"
+lucide_icons="folder folder-open file-text file-image file heading-1 heading-2 heading-3 heading-4 heading-5 heading-6 arrow-left arrow-right chevron-right chevron-down check plus grip-vertical bold italic strikethrough code link highlighter type list list-ordered list-todo quote square-code table minus image sigma copy clipboard-copy trash-2 repeat-2 search file-search"
 
 fetch() { curl -fsSL --retry 3 -o "$2" "$1"; }
 

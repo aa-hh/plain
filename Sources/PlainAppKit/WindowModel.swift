@@ -254,6 +254,8 @@ public final class WindowModel {
     public let sidebar = SidebarState()
     public let popup = PopupState()
     public private(set) var previewMode: PreviewMode = .none
+    /// View > Show Markdown Source: the editor shows the Markdown as text instead of the page; saved per window.
+    public private(set) var markdownSource = false
     public private(set) var interfaceHidden = false
     public private(set) var notifications: [ShellNotification] = []
     public var zoomImage: NSImage?
@@ -291,6 +293,7 @@ public final class WindowModel {
     static func projectName(_ id: Int) -> String { "project-w\(id)" }
     static func sidebarName(_ id: Int) -> String { "sidebar-w\(id)" }
     static func previewModeName(_ id: Int) -> String { "preview-modes-w\(id)" }
+    static func markdownSourceName(_ id: Int) -> String { "markdown-source-w\(id)" }
     static let hideInterfaceName = "hide-interface"
 
     public init(id: Int, context: AppContext) {
@@ -339,7 +342,7 @@ public final class WindowModel {
         return EditorConfiguration(
             fontSize: p.number("fontSize"), codeFontSize: p.number("codeFontSize"), lineHeight: p.number("lineHeight"),
             lineWidth: p.number("lineWidth"), largeHeadings: p.bool("useLargeFontInHeadings"), typewriter: p.bool("typewriter"),
-            darkMode: p.bool("nightMode"), tabSize: Int(p.number("tabSize")))
+            darkMode: p.bool("nightMode"), tabSize: Int(p.number("tabSize")), showMarkdownSource: markdownSource)
     }
 
     public var statsVisible: Bool { context.preferences.bool("text-stats.visible") && !interfaceHidden }
@@ -423,6 +426,7 @@ public final class WindowModel {
             sidebar.apply(oldMode: oldMode)
         }
         if let saved = await store.load(Self.previewModeName(id), as: PreviewMode.self) { previewMode = saved }
+        if let saved = await store.load(Self.markdownSourceName(id), as: Bool.self) { markdownSource = saved }
         editor.isReadOnly = previewMode == .full
         interfaceHidden = await store.load(Self.hideInterfaceName, as: Bool.self) ?? false
         await sidebar.loadExpansion(from: store)
@@ -1084,6 +1088,10 @@ public final class WindowModel {
         case "window:toggle-live-preview": setPreviewMode(previewMode == .split ? .none : .split)
         case "window:toggle-preview": setPreviewMode(previewMode == .full ? .none : .full)
         case "window:typewriter-mode": toggle("typewriter")
+        case "window:toggle-markdown-source":
+            markdownSource.toggle()
+            let store = context.store, window = self.id, value = markdownSource
+            Task { try? await store.save(Self.markdownSourceName(window), value) }
         case "window:toggle-text-stats":
             if interfaceHidden { setInterfaceHidden(false) }
             toggle("text-stats.visible")
@@ -1105,6 +1113,7 @@ public final class WindowModel {
         case "window:toggle-sidebar": sidebarVisible
         case "window:toggle-live-preview": previewMode == .split
         case "window:toggle-preview": previewMode == .full
+        case "window:toggle-markdown-source": markdownSource
         default: false
         }
     }
@@ -1682,6 +1691,7 @@ public final class WindowModel {
             if let url = components.url { NSWorkspace.shared.open(url) }
         }
         actions.zoom = { [weak self] image in self?.zoomImage = image }
+        actions.folderFiles = { [weak self] in self?.allFiles ?? [] }
         actions.openFile = { [weak self] url, offset in
             guard let self else { return }
             Task {

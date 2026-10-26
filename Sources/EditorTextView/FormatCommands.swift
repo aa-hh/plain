@@ -20,13 +20,18 @@ extension EditorTextView {
         case "editor:paste-formatted": pasteFormatted()
         case "editor:select-all": selectAll(nil)
         case "editor:toggle-menu": if autocomplete != nil { moveAutocompleteSelection(by: 1) } else { askForSuggestions() }
-        case "editor:bold": toggleInline(.strong, marker: "**")
-        case "editor:italic": toggleInline(.emphasis, marker: "_")
+        case "editor:bold": if !pendInline(.strong, marker: "**") { toggleInline(.strong, marker: "**") }
+        case "editor:italic": if !pendInline(.emphasis, marker: "_") { toggleInline(.emphasis, marker: "_") }
         case "editor:strikethrough": toggleInline(.strike, marker: "~~")
         case "editor:mark": toggleInline(.highlight, marker: "::")
         case "editor:code": toggleInline(.code, marker: "`")
         case "editor:math": toggleInline(.math, marker: "$$")
-        case "editor:link": toggleLink(image: false)
+        case "editor:link":
+            if isPage, let offset = allSelections.first?.location, !inlines(at: offset).contains(where: { Self.isLinkKind($0.kind) }) {
+                openLinkEditor()
+            } else {
+                toggleLink(image: false)
+            }
         case "editor:image": toggleLink(image: true)
         case "editor:list": toggleList(.bullet)
         case "editor:ordered-list": toggleList(.ordered)
@@ -47,6 +52,20 @@ extension EditorTextView {
             }
         }
         return true
+    }
+
+    /// On the page, Bold or Italic at one empty caret outside that kind waits for the next character typed there.
+    private func pendInline(_ kind: InlineKind, marker: String) -> Bool {
+        guard isPage, let offset = caret, !inlines(at: offset).contains(where: { $0.kind == kind }) else { return false }
+        pendingInline = (kind, marker, offset)
+        return true
+    }
+
+    static func isLinkKind(_ kind: InlineKind) -> Bool {
+        switch kind {
+        case .link, .referenceLink, .autolink: return true
+        default: return false
+        }
     }
 
     private func performOtherCommand(_ id: String) -> Bool {
@@ -285,7 +304,67 @@ extension EditorTextView {
         return true
     }
 
+    /// Plain's own pasteboard type for page copies: the selection's Markdown, balanced.
+    static let markdownPasteboardType = NSPasteboard.PasteboardType("com.alechenderson.Plain.markdown")
+
+    /// The ranges page Copy and Cut act on: the non-empty selections, or the caret's whole line.
+    private var pageCopyRanges: [NSRange] {
+        let ranges = allSelections.filter { $0.length > 0 }
+        if ranges.isEmpty, let offset = caret { return [nsText.lineRange(for: NSRange(location: offset, length: 0))] }
+        return ranges
+    }
+
+    /// Writes the visible text as plain text and the balanced Markdown under Plain's own type. False without a snapshot.
+    private func pageCopy(_ ranges: [NSRange]) -> Bool {
+        guard isPage, let snapshot, !ranges.isEmpty else { return false }
+        let plain = ranges.map { VisibleText.plain(text: nsText, snapshot: snapshot, range: $0, columnWidth: styler.pageColumnWidth) }
+        let markdown = ranges.map { balancedMarkdown($0, snapshot: snapshot) }
+        let board = pasteboard
+        board.clearContents()
+        board.setString(plain.joined(separator: "\n"), forType: .string)
+        board.setString(markdown.joined(separator: "\n"), forType: Self.markdownPasteboardType)
+        return true
+    }
+
+    /// The Markdown of `range` with the markers added that emphasis, strong, strike, highlight and code inlines only
+    /// partly inside it are missing; a partly selected link gives its text without link syntax.
+    func balancedMarkdown(_ range: NSRange, snapshot: Snapshot) -> String {
+        var prefix = "", suffix = "", dropped: [NSRange] = []
+        func visit(_ inlines: [Inline]) {
+            for inline in inlines where NSIntersectionRange(inline.range, range).length > 0 {
+                let inside = inline.range.location >= range.location && NSMaxRange(inline.range) <= NSMaxRange(range)
+                if !inside {
+                    switch inline.kind {
+                    case .emphasis, .strong, .strike, .highlight, .code:
+                        if inline.markerRanges.count == 2 {
+                            let open = inline.markerRanges[0], close = inline.markerRanges[1]
+                            if open.location < range.location { prefix += nsText.substring(with: open) }
+                            if NSMaxRange(close) > NSMaxRange(range) { suffix = nsText.substring(with: close) + suffix }
+                        }
+                    case .link, .referenceLink, .autolink:
+                        dropped += inline.markerRanges
+                    default:
+                        break
+                    }
+                }
+                visit(inline.children)
+            }
+        }
+        for block in VisibleText.blocksMeeting(range, in: snapshot) { visit(block.inlines) }
+        var body = ""
+        var location = range.location
+        for marker in dropped.sorted(by: { $0.location < $1.location }) {
+            let part = NSIntersectionRange(marker, range)
+            guard part.length > 0, part.location >= location else { continue }
+            body += nsText.substring(with: NSRange(location: location, length: part.location - location))
+            location = NSMaxRange(part)
+        }
+        body += nsText.substring(with: NSRange(location: location, length: NSMaxRange(range) - location))
+        return prefix + body + suffix
+    }
+
     public override func copy(_ sender: Any?) {
+        if pageCopy(pageCopyRanges) { return }
         let restore = selectedRanges
         let wholeLine = wholeLineIfEmpty()
         _ = writeSelection(to: pasteboard, types: writablePasteboardTypes)
@@ -293,6 +372,11 @@ extension EditorTextView {
     }
 
     public override func cut(_ sender: Any?) {
+        let ranges = pageCopyRanges
+        if pageCopy(ranges) {
+            if ranges.count == 1 { pageReplace(ranges[0], with: "") } else { replaceAtAllSelections { $0.length > 0 ? ($0, "") : nil } }
+            return
+        }
         _ = wholeLineIfEmpty()
         if writeSelection(to: pasteboard, types: writablePasteboardTypes) { delete(sender) }
     }
@@ -329,6 +413,7 @@ extension EditorTextView {
 
     public override func paste(_ sender: Any?) {
         let board = pasteboard
+        if let markdown = board.string(forType: Self.markdownPasteboardType) { return paste(text: markdown) }
         if board.string(forType: .string) == nil, pasteImage(from: board) { return }
         guard let string = board.string(forType: .string) else { readSelection(from: board); return }
         paste(text: string)

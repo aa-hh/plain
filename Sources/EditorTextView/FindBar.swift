@@ -1,4 +1,5 @@
 import AppKit
+import MarkdownDocument
 import PlainCore
 
 /// What Find remembers while it is open.
@@ -9,6 +10,9 @@ struct FindState {
     /// Scroll position and selection when Find opened, restored by Esc when nothing matched (spec 306).
     var savedOrigin: NSPoint
     var savedSelections: [NSRange]
+    /// On the page: the visible text Find searches and each unit's source offset, built once per snapshot and
+    /// column width rather than once per query.
+    var visible: (version: TextVersion, columnWidth: CGFloat, string: NSString, offsets: [Int])?
 }
 
 /// Find in file (spec 298–313). No Replace.
@@ -70,7 +74,12 @@ extension EditorTextView {
     func findQueryChanged(_ query: String, fromSelection: Bool = false) {
         guard var state = find else { return }
         state.query = query
-        state.matches = Self.findMatches(query, in: nsText)
+        if isPage, snapshot == nil {
+            // A parse is pending: keep the previous matches; `received` finds the new query once the snapshot arrives.
+            find = state
+            return
+        }
+        state.matches = pageFindMatches(query, state: &state) ?? Self.findMatches(query, in: nsText)
         state.current = nil
         if !state.matches.isEmpty {
             if fromSelection, let selection = allSelections.first {
@@ -99,10 +108,46 @@ extension EditorTextView {
     }
 
     /// Re-finds after the text changed, keeping the current match near where it was (spec 307).
+    /// On the page, matches in the visible text mapped back to the Markdown, so "bold text" finds `**bold** text`.
+    /// Nil in the source view or while a parse is pending.
+    private func pageFindMatches(_ query: String, state: inout FindState) -> [NSRange]? {
+        guard isPage, let snapshot else { return nil }
+        let width = styler.pageColumnWidth
+        if state.visible?.version != snapshot.version || state.visible?.columnWidth != width {
+            let whole = NSRange(location: 0, length: nsText.length)
+            let map = VisibleText.map(text: nsText, snapshot: snapshot, range: whole, columnWidth: width)
+            // Only characters shown on the page are searched: the stand-ins Copy writes for hidden Markdown (bullets,
+            // boxes, footnote numbers, tabs, separator breaks) each map to an offset inside a hidden range, where no
+            // shown character is, so they are dropped.
+            let hidden = HiddenRanges.list(in: whole, snapshot: snapshot, text: nsText, columnWidth: width, caret: nil)
+            let mapped = Array(map.string.utf16)
+            var units: [unichar] = []
+            var offsets: [Int] = []
+            units.reserveCapacity(mapped.count)
+            offsets.reserveCapacity(map.offsets.count)
+            var next = 0
+            for (unit, offset) in zip(mapped, map.offsets) {
+                while next < hidden.count, NSMaxRange(hidden[next].range) <= offset { next += 1 }
+                if next < hidden.count, NSLocationInRange(offset, hidden[next].range) { continue }
+                units.append(unit)
+                offsets.append(offset)
+            }
+            offsets.append(map.offsets.last ?? whole.length)
+            state.visible = (snapshot.version, width, NSString(characters: units, length: units.count), offsets)
+        }
+        guard let visible = state.visible else { return nil }
+        return Self.findMatches(query, in: visible.string).map { match in
+            let start = visible.offsets[match.location]
+            let end = match.length > 0 ? visible.offsets[NSMaxRange(match) - 1] + 1 : start
+            return NSRange(location: start, length: end - start)
+        }
+    }
+
     func findTextChanged() {
         guard var state = find else { return }
+        if isPage, snapshot == nil { return }
         let previous = state.current.map { state.matches[$0].location }
-        state.matches = Self.findMatches(state.query, in: nsText)
+        state.matches = pageFindMatches(state.query, state: &state) ?? Self.findMatches(state.query, in: nsText)
         state.current = state.matches.isEmpty ? nil : (previous.flatMap { p in state.matches.firstIndex { $0.location >= p } } ?? 0)
         find = state
         highlightMatches()

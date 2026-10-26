@@ -8,6 +8,7 @@ struct ImageLine {
     /// The line without its line break.
     var line: NSRange
     var url: URL
+    var alt = ""
 }
 
 /// Pictures in place of image lines (spec 226–237). The source text stays in the file; it is coloured clear and the
@@ -25,11 +26,11 @@ extension EditorTextView {
             let block = snapshot.blocks[index]
             index += 1
             guard block.kind == .paragraph, block.lineRange.count == 1, block.inlines.count == 1,
-                  case .image(let destination, _) = block.inlines[0].kind,
+                  case .image(let destination, let alt) = block.inlines[0].kind,
                   case .file(let url)? = resolve(destination) else { continue }
             let line = lineContents(at: block.range.location)
             guard nsText.substring(with: line).trimmingCharacters(in: .whitespaces) == nsText.substring(with: block.inlines[0].range) else { continue }
-            result.append(ImageLine(line: line, url: url))
+            result.append(ImageLine(line: line, url: url, alt: alt))
         }
         return result
     }
@@ -62,11 +63,25 @@ extension EditorTextView {
             if size.height > Self.imageMaxHeight { size = NSSize(width: size.width * Self.imageMaxHeight / size.height, height: Self.imageMaxHeight) }
             size = NSSize(width: size.width.rounded(), height: size.height.rounded())
             let selected = caret == image.line.location
-            let overlay = OverlayImage(image: picture, size: size, topSpacing: Self.imageSpacing, left: indent, selected: selected)
-            let style = styler.paragraphStyle(lineHeight: size.height + 2 * Self.imageSpacing, font: styler.proseFont)
+            var drawn = picture
+            var lineHeight = size.height + 2 * Self.imageSpacing
+            if isPage {
+                let radius = Tokens.page.imageRadius
+                drawn = NSImage(size: size, flipped: false) { rect in
+                    NSBezierPath(roundedRect: rect, xRadius: radius, yRadius: radius).addClip()
+                    picture.draw(in: rect)
+                    return true
+                }
+                if !image.alt.isEmpty { lineHeight += Tokens.page.captionGap + 21 }
+            }
+            let overlay = OverlayImage(image: drawn, size: size, topSpacing: Self.imageSpacing, left: indent, selected: selected)
+            let style = styler.paragraphStyle(lineHeight: lineHeight, font: styler.proseFont)
             storage.beginEditing()
             storage.addAttributes([.foregroundColor: NSColor.clear, .paragraphStyle: style], range: image.line)
             storage.addAttribute(.plainOverlay, value: overlay, range: image.line)
+            if isPage, !image.alt.isEmpty, image.line.length > 0 {
+                storage.addAttribute(.plainPageCaption, value: image.alt, range: image.line)
+            }
             storage.endEditing()
         }
     }
@@ -185,18 +200,30 @@ extension EditorTextView {
 
     public override func moveUp(_ sender: Any?) {
         if moveAllCarets(by: -1, vertical: true) || insertLineAroundImage(before: true) { return }
+        let saved = pageMove
+        pageMove = (-1, true)
+        defer { pageMove = saved }
         super.moveUp(sender)
     }
     public override func moveLeft(_ sender: Any?) {
         if moveAllCarets(by: -1, vertical: false) || insertLineAroundImage(before: true) { return }
+        let saved = pageMove
+        pageMove = (-1, false)
+        defer { pageMove = saved }
         super.moveLeft(sender)
     }
     public override func moveDown(_ sender: Any?) {
         if moveAllCarets(by: 1, vertical: true) || insertLineAroundImage(before: false) { return }
+        let saved = pageMove
+        pageMove = (1, true)
+        defer { pageMove = saved }
         super.moveDown(sender)
     }
     public override func moveRight(_ sender: Any?) {
         if moveAllCarets(by: 1, vertical: false) || insertLineAroundImage(before: false) { return }
+        let saved = pageMove
+        pageMove = (1, false)
+        defer { pageMove = saved }
         super.moveRight(sender)
     }
 

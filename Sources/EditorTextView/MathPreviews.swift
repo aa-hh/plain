@@ -115,7 +115,7 @@ extension EditorTextView {
     /// True when the source should show: a selection touches the block or the line before or after it, Find is open,
     /// or the split preview is showing.
     func showsMathSource(_ block: Block) -> Bool {
-        if findBarVisible || splitPreviewShowing { return true }
+        if (findBarVisible && !isPage) || splitPreviewShowing { return true }
         let first = lineContents(at: block.range.location)
         let start = first.location > 0 ? lineContents(at: first.location - 1).location : first.location
         let lastLine = lineContents(at: NSMaxRange(block.range))
@@ -160,8 +160,10 @@ extension EditorTextView {
     /// spacing when the picture is taller than the lines.
     private func coverMath(_ block: Block, with image: NSImage) {
         let storage = document.textStorage
-        let lines = CGFloat(block.lineRange.count) * configuration.linePoints
-        let overlay = OverlayImage(image: image, size: image.size, topSpacing: max((lines - image.size.height) / 2, 0))
+        let linePoints = isPage ? Tokens.page.bodySize * Tokens.page.bodyLine : configuration.linePoints
+        let lines = CGFloat(block.lineRange.count) * linePoints
+        let left = isPage ? max(((textContainer?.size.width ?? 0) - image.size.width) / 2, 0) : 0
+        let overlay = OverlayImage(image: image, size: image.size, topSpacing: max((lines - image.size.height) / 2, 0), left: left)
         let firstLine = lineContents(at: block.range.location)
         storage.beginEditing()
         storage.addAttribute(.foregroundColor, value: NSColor.clear, range: block.range)
