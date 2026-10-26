@@ -13,17 +13,24 @@ public struct OutlineSidebar: View {
     /// Jumps to a heading; `focusEditor` is true for Enter and a click, false for Space.
     let onJump: (Heading, _ focusEditor: Bool) -> Void
 
+    /// Set by Show Outline; the filter takes keyboard focus and clears it (spec 921).
+    @Binding var focusRequested: Bool
+
     @State private var query = ""
     @State private var cursor: Int?
     @FocusState private var focused: Bool
+    @FocusState private var filterFocused: Bool
+    /// The filter row shows while it is focused or holds a query.
+    @State private var filterShown = false
 
     public init(
         headings: [Heading], caretOffset: Int, changedHeadings: Set<BlockID>,
-        onJump: @escaping (Heading, Bool) -> Void
+        focusRequested: Binding<Bool> = .constant(false), onJump: @escaping (Heading, Bool) -> Void
     ) {
         self.headings = headings
         self.caretOffset = caretOffset
         self.changedHeadings = changedHeadings
+        self._focusRequested = focusRequested
         self.onJump = onJump
     }
 
@@ -37,19 +44,29 @@ public struct OutlineSidebar: View {
         let ranks = HeadingList.ranks(levels: headings.map(\.level))
         let current = Self.currentHeading(headings, caretOffset: caretOffset)
         VStack(spacing: 0) {
-            TextField("", text: $query, prompt: focused ? Text("Outline").foregroundStyle(Color.tertiaryText) : nil)
-                .textFieldStyle(.plain)
-                .font(uiFont)
-                .foregroundStyle(Color.textColor)
-                .padding(.horizontal, Tokens.rowPadding)
-                .frame(height: Tokens.line * 2)
+            if SectionFilter.isShown(focused: filterShown, query: query) {
+                TextField("", text: $query, prompt: Text("Outline").foregroundStyle(Color.tertiaryText))
+                    .textFieldStyle(.plain)
+                    .font(uiFont)
+                    .foregroundStyle(Color.textColor)
+                    .focused($filterFocused)
+                    .padding(.horizontal, Tokens.rowPadding)
+                    .frame(height: Tokens.line)
+            }
+            if headings.isEmpty {
+                Text("No headings")
+                    .font(uiFont)
+                    .foregroundStyle(Color.tertiaryText)
+                    .padding(.horizontal, Tokens.rowPadding)
+                    .frame(maxWidth: .infinity, minHeight: Tokens.line, maxHeight: Tokens.line, alignment: .leading)
+            }
             ScrollViewReader { proxy in
                 ScrollView(.vertical, showsIndicators: false) {
                     LazyVStack(spacing: 0) {
                         ForEach(rows, id: \.index) { row in
                             let heading = headings[row.index]
                             HStack(spacing: 0) {
-                                HeadingIcon(level: heading.level)
+                                HeadingIcon(level: heading.level).padding(.trailing, 6)
                                 Text(heading.text).truncationMode(.tail)
                                 Spacer(minLength: 4)
                                 if changedHeadings.contains(heading.blockID) { GitMarkLabel(mark: .changed) }
@@ -71,9 +88,16 @@ public struct OutlineSidebar: View {
                 .onChange(of: current) { _, index in cursor = nil; if let index { proxy.scrollTo(index) } }
             }
         }
-        .frame(width: Tokens.sidebarWidth)
-        .background(Color.material)
         .focused($focused)
+        .task(id: focusRequested) {
+            guard focusRequested else { return }
+            filterShown = true
+            focusRequested = false
+            // The filter row appears with this update; focus moves once it exists.
+            try? await Task.sleep(for: .milliseconds(1))
+            filterFocused = true
+        }
+        .onChange(of: filterFocused) { _, isFocused in if !isFocused { filterShown = false } }
         .onKeyPress(phases: .down) { press in handle(press, rows: rows.map(\.index), current: current) }
     }
 

@@ -52,8 +52,8 @@ public struct EditorActions {
     public var recordEmoji: (String) -> Void = { _ in }
     /// The window's folder, for "Show in Sidebar" and `/` paths.
     public var folderURL: () -> URL? = { nil }
-    /// Opens a file in a tab (or with the system when Plain cannot open it).
-    public var openPath: (URL) -> Void = { _ in }
+    /// Opens a file in the current tab, or in a new one when `newTab` (or with the system when Plain cannot open it).
+    public var openPath: (URL, _ newTab: Bool) -> Void = { _, _ in }
     public var revealInFinder: (URL) -> Void = { NSWorkspace.shared.activateFileViewerSelecting([$0]) }
     public var showInSidebar: (URL) -> Void = { _ in }
     /// Creates an empty file and opens it in a tab.

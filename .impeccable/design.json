@@ -1,6 +1,6 @@
 {
   "schemaVersion": 2,
-  "generatedAt": "2026-10-22T00:40:00.694049+00:00",
+  "generatedAt": "2026-10-26T08:51:29.017293+00:00",
   "title": "Design System: Plain",
   "extensions": {
     "colorMeta": {
@@ -391,12 +391,28 @@
       "css": ".ds-note{font-family:-apple-system,system-ui,sans-serif;font-size:13px;background:#FAFAFA;padding:13px;text-align:center}.ds-err{color:#D98C8C;border-top:1px solid #D98C8C}.ds-bracket{font:inherit;color:inherit;background:none;border:none;padding:0 0 0 13px;cursor:pointer}.ds-bracket:hover{color:#4C4C4C}"
     },
     {
-      "name": "Files Sidebar Row",
+      "name": "File Row",
       "kind": "custom",
       "refersTo": "popup-row",
-      "description": "13 pt rows on 24 pt, 16 pt indent per level, Git marks in tertiary text.",
+      "description": "A row in the Files, Pinned or Recent section: pixel icon, name, tertiary extension, Git mark.",
       "html": "<div class=\"ds-side\"><div class=\"ds-srow\">docs</div><div class=\"ds-srow ds-l1\">DESIGN.md <span class=\"ds-mark\">~</span></div><div class=\"ds-srow ds-l1\">notes.md <span class=\"ds-mark\">+</span></div></div>",
       "css": ".ds-side{font-family:-apple-system,system-ui,sans-serif;width:200px;background:#FAFAFA;padding:12px 0}.ds-srow{font-size:13px;height:24px;line-height:24px;padding:0 20px;color:#7F7F7F;cursor:default}.ds-srow:hover{background:rgba(0,0,0,0.04)}.ds-l1{padding-left:36px}.ds-mark{color:#B3B3B3;float:right}"
+    },
+    {
+      "name": "Back and Forward Arrows",
+      "kind": "nav",
+      "refersTo": "tab",
+      "description": "Text arrows at the left of the tab strip; an arrow with nowhere to go keeps its space but is not drawn.",
+      "html": "<div class=\"ds-arrows\"><span class=\"ds-arrow\">←</span><span class=\"ds-arrow ds-off\">→</span><span class=\"ds-tab\">Notes<span class=\"ds-ext\">.md</span></span></div>",
+      "css": ".ds-arrows{font-family:-apple-system,system-ui,sans-serif;display:flex;height:48px;padding:9px 80px 0;background:#FAFAFA}.ds-arrow{font-size:13px;width:24px;height:30px;line-height:24px;padding-top:3px;text-align:center;color:#B3B3B3;cursor:default}.ds-arrow.ds-off{visibility:hidden}.ds-arrow+.ds-arrow{margin-right:10px}.ds-tab{font-size:13px;height:30px;line-height:24px;padding:3px 10px;color:#7F7F7F}.ds-ext{color:#B3B3B3}"
+    },
+    {
+      "name": "Sidebar Section Header",
+      "kind": "nav",
+      "refersTo": "sidebar",
+      "description": "A section's one-line header: secondary text unfolded, tertiary folded, 12 pt above every header but the first.",
+      "html": "<div class=\"ds-side\"><div class=\"ds-head\">Pinned</div><div class=\"ds-row\">plan<span class=\"ds-ext\">.md</span></div><div class=\"ds-head ds-gap ds-folded\">Recent</div><div class=\"ds-head ds-gap\">notes</div><div class=\"ds-row\">ideas<span class=\"ds-ext\">.md</span></div></div>",
+      "css": ".ds-side{font-family:-apple-system,system-ui,sans-serif;width:200px;background:#FAFAFA;padding-bottom:12px}.ds-head{font-size:13px;height:24px;line-height:24px;padding:0 20px;color:#7F7F7F;cursor:default}.ds-head.ds-folded{color:#B3B3B3}.ds-gap{margin-top:12px}.ds-row{font-size:13px;height:24px;line-height:24px;padding:0 20px;color:#7F7F7F}.ds-ext{color:#B3B3B3}"
     }
   ],
   "narrative": {

@@ -203,7 +203,14 @@ public enum Tokens {
     public static let editorTopPadding: CGFloat = 48
     public static let editorBottomPadding: CGFloat = 96
     public static let editorSidePadding: CGFloat = 80
+    /// The sidebar's default width, and its range when dragged; below `sidebarCloseWidth` it closes
+    /// (docs/navigation-spec.md, Width).
     public static let sidebarWidth: CGFloat = 200
+    public static let sidebarMinWidth: CGFloat = 160
+    public static let sidebarMaxWidth: CGFloat = 400
+    public static let sidebarCloseWidth: CGFloat = 120
+    /// Space above every sidebar section header but the first.
+    public static let sidebarSectionGap: CGFloat = 12
     public static let rowPadding: CGFloat = 20
     public static let levelIndent: CGFloat = 16
     public static let popupWidth: CGFloat = 360

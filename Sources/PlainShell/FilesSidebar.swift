@@ -2,22 +2,30 @@ import AppKit
 import FolderIndex
 import GitStatus
 import PlainCore
+import PlainVendor
 import SwiftUI
 
-/// A 9 × 7 pixel drawing at the bottom-left of a 16 × 16 box, filled in the tertiary colour.
-struct PixelIcon: View {
-    let rows: [String]
+/// A Lucide icon from the vendor files, 16 × 16 in the tertiary colour unless told otherwise.
+struct LucideIcon: View {
+    let name: String
+    var size: CGFloat = 16
+    var colour: Color = .tertiaryText
+
+    @MainActor static var cache: [String: NSImage] = [:]
+
+    static func image(_ name: String) -> NSImage {
+        if let image = cache[name] { return image }
+        let image = NSImage(contentsOf: VendorFiles.lucideIcon(name)) ?? NSImage()
+        image.isTemplate = true
+        cache[name] = image
+        return image
+    }
 
     var body: some View {
-        Canvas { context, size in
-            let top = size.height - CGFloat(rows.count)
-            for (y, row) in rows.enumerated() {
-                for (x, pixel) in row.enumerated() where pixel == "1" {
-                    context.fill(Path(CGRect(x: CGFloat(x), y: top + CGFloat(y), width: 1, height: 1)), with: .color(.tertiaryText))
-                }
-            }
-        }
-        .frame(width: 16, height: 16)
+        Image(nsImage: Self.image(name))
+            .resizable()
+            .foregroundStyle(colour)
+            .frame(width: size, height: size)
     }
 }
 
@@ -26,42 +34,21 @@ struct FileIcon: View {
     let kind: FileKind
     var expanded = false
 
-    static let folderClosed = ["111000000", "100111111", "100000001", "101010101", "101010101", "100000001", "111111111"]
-    static let folderOpen = ["111000000", "111111111", "111111111", "111111111", "111111111", "111111111", "111111111"]
-    static let text = ["111111111", "000000000", "111111000", "000000000", "111111111", "000000000", "111110000"]
-    static let image = ["101010101", "010101010", "101010101", "010101010", "101010101", "010101010", "101010101"]
-    static let other = ["101010101", "000000000", "101010101", "000000000", "101010101", "000000000", "101010101"]
-
     var body: some View {
         switch kind {
-        case .folder: PixelIcon(rows: expanded ? Self.folderOpen : Self.folderClosed)
-        case .text: PixelIcon(rows: Self.text)
-        case .image: PixelIcon(rows: Self.image)
-        case .other: PixelIcon(rows: Self.other)
+        case .folder: LucideIcon(name: expanded ? "folder-open" : "folder")
+        case .text: LucideIcon(name: "file-text")
+        case .image: LucideIcon(name: "file-image")
+        case .other: LucideIcon(name: "file")
         }
     }
 }
 
-/// A 9 × 7 box with `H1`…`H6` drawn in 3 × 5 pixel letters.
+/// Lucide's heading-1 to heading-6.
 struct HeadingIcon: View {
     let level: Int
 
-    static let glyphs: [Character: [String]] = [
-        "H": ["101", "101", "111", "101", "101"],
-        "1": ["010", "110", "010", "010", "111"],
-        "2": ["111", "001", "111", "100", "111"],
-        "3": ["111", "001", "011", "001", "111"],
-        "4": ["101", "101", "111", "001", "001"],
-        "5": ["111", "100", "111", "001", "111"],
-        "6": ["111", "100", "111", "101", "111"],
-    ]
-
-    var body: some View {
-        let h = Self.glyphs["H"]!
-        let digit = Self.glyphs[Character(String(min(max(level, 1), 6)))]!
-        let inner = (0..<5).map { h[$0] + "0" + digit[$0] }
-        PixelIcon(rows: ["111111111"] + inner.map { "1" + $0 + "1" } + ["111111111"])
-    }
+    var body: some View { LucideIcon(name: "heading-\(min(max(level, 1), 6))") }
 }
 
 /// A git mark after a row: `+` added, `~` changed, `D` deleted, `R` renamed.
@@ -92,12 +79,15 @@ public struct FilesSidebarActions {
     public var paste: (_ folder: URL) -> Void
     public var revealInFinder: ([URL]) -> Void
     public var focusEditor: () -> Void
+    /// Pin in the sidebar's Pinned section.
+    public var pin: (URL) -> Void
 
     public init(
         open: @escaping (URL, Bool) -> Void, createFile: @escaping (URL, String) throws -> Void,
         createFolder: @escaping (URL, String) throws -> Void, rename: @escaping (URL, String) throws -> Void,
         trash: @escaping ([URL]) -> Void, copy: @escaping ([URL]) -> Void, cut: @escaping ([URL]) -> Void,
-        paste: @escaping (URL) -> Void, revealInFinder: @escaping ([URL]) -> Void, focusEditor: @escaping () -> Void
+        paste: @escaping (URL) -> Void, revealInFinder: @escaping ([URL]) -> Void, focusEditor: @escaping () -> Void,
+        pin: @escaping (URL) -> Void = { _ in }
     ) {
         self.open = open
         self.createFile = createFile
@@ -109,18 +99,17 @@ public struct FilesSidebarActions {
         self.paste = paste
         self.revealInFinder = revealInFinder
         self.focusEditor = focusEditor
+        self.pin = pin
     }
 }
 
-/// The Files sidebar: a filter header with the folder name as placeholder, then the folder tree.
+/// The sidebar's Files section: a filter row with the folder name as placeholder, then the folder tree.
 /// Folders show their children only while expanded; `expanded` is kept by `SidebarState`.
 public struct FilesSidebar: View {
     let root: FolderNode
     let currentFile: URL?
     let gitMarks: [URL: GitMark]
     @Binding var expanded: Set<URL>
-    /// Draws the 1 pt right edge (compact or narrow window).
-    let compact: Bool
     let actions: FilesSidebarActions
 
     private enum InlineEdit: Equatable {
@@ -135,6 +124,7 @@ public struct FilesSidebar: View {
     }
 
     @State private var query = ""
+    @State private var filterSelection: TextSelection?
     @State private var selected = Set<URL>()
     @State private var cursor: URL?
     @State private var anchor: URL?
@@ -152,13 +142,12 @@ public struct FilesSidebar: View {
 
     public init(
         root: FolderNode, currentFile: URL?, gitMarks: [URL: GitMark], expanded: Binding<Set<URL>>,
-        compact: Bool, actions: FilesSidebarActions, focusRequested: Binding<Bool> = .constant(false)
+        actions: FilesSidebarActions, focusRequested: Binding<Bool> = .constant(false)
     ) {
         self.root = root
         self.currentFile = currentFile
         self.gitMarks = gitMarks
         self._expanded = expanded
-        self.compact = compact
         self.actions = actions
         self._focusRequested = focusRequested
     }
@@ -184,15 +173,18 @@ public struct FilesSidebar: View {
     public var body: some View {
         let rows = Self.visibleRows(root: root, expanded: expanded, query: query)
         VStack(spacing: 0) {
-            TextField("", text: $query, prompt: focus == .filter ? Text(root.name).foregroundStyle(Color.tertiaryText) : nil)
-                .textFieldStyle(.plain)
-                .font(uiFont)
-                .foregroundStyle(Color.textColor)
-                .help(root.url.path)
-                .focused($focus, equals: .filter)
-                .onKeyPress(phases: .down) { handleFilterKey($0, rows: rows) }
-                .padding(.horizontal, Tokens.rowPadding)
-                .frame(height: Tokens.line * 2)
+            // The filter row shows only while it is in use; typing in the list starts it.
+            if SectionFilter.isShown(focused: focus == .filter, query: query) {
+                TextField("", text: $query, selection: $filterSelection, prompt: Text(root.name).foregroundStyle(Color.tertiaryText))
+                    .textFieldStyle(.plain)
+                    .font(uiFont)
+                    .foregroundStyle(Color.textColor)
+                    .help(root.url.path)
+                    .focused($focus, equals: .filter)
+                    .onKeyPress(phases: .down) { handleFilterKey($0, rows: rows) }
+                    .padding(.horizontal, Tokens.rowPadding)
+                    .frame(height: Tokens.line)
+            }
             ScrollViewReader { proxy in
                 ScrollView(.vertical, showsIndicators: false) {
                     LazyVStack(spacing: 0) {
@@ -220,11 +212,6 @@ public struct FilesSidebar: View {
             focus = .list
             focusRequested = false
         }
-        .frame(width: Tokens.sidebarWidth)
-        .background(Color.material)
-        .overlay(alignment: .trailing) {
-            if compact { Rectangle().fill(Color.materialLine).frame(width: 1) }
-        }
         .confirmationDialog(trashTitle, isPresented: Binding(get: { !pendingTrash.isEmpty }, set: { if !$0 { pendingTrash = [] } })) {
             Button("Move to Trash", role: .destructive) { actions.trash(pendingTrash); pendingTrash = [] }
             Button("Cancel", role: .cancel) { pendingTrash = [] }
@@ -244,7 +231,7 @@ public struct FilesSidebar: View {
         let ext = isFolder || node.url.pathExtension.isEmpty ? "" : "." + node.url.pathExtension
         let name = ext.isEmpty ? node.name : String(node.name.dropLast(ext.count))
         return HStack(spacing: 0) {
-            FileIcon(kind: node.kind, expanded: expanded.contains(node.url))
+            FileIcon(kind: node.kind, expanded: expanded.contains(node.url)).padding(.trailing, 6)
             if edit == .rename(node.url) {
                 editField
             } else {
@@ -262,6 +249,7 @@ public struct FilesSidebar: View {
         .background(rowBackground(node.url))
         .contentShape(Rectangle())
         .onTapGesture { click(node, rows: rows) }
+        .overlay { if !isFolder { MiddleClickCatcher { actions.open(node.url, true) } } }
         .onDrag { NSItemProvider(object: node.url as NSURL) }
         .contextMenu { itemMenu(for: node) }
     }
@@ -274,7 +262,7 @@ public struct FilesSidebar: View {
 
     private func editRow(depth: Int, kind: FileKind) -> some View {
         HStack(spacing: 0) {
-            FileIcon(kind: kind)
+            FileIcon(kind: kind).padding(.trailing, 6)
             editField
         }
         .font(uiFont)
@@ -308,6 +296,7 @@ public struct FilesSidebar: View {
         if targets.count == 1 { Button("Rename") { startRename(node.url) } }
         Button("Delete") { pendingTrash = targets }
         Divider()
+        if node.kind != .folder { Button("Pin") { actions.pin(node.url) } }
         Button("Show in Finder") { actions.revealInFinder(targets) }
     }
 
@@ -468,7 +457,12 @@ public struct FilesSidebar: View {
         case .escape, .tab:
             if query.isEmpty { actions.focusEditor() } else { query = "" }
         default:
-            return .ignored
+            guard !cmd, !ctrl, press.characters.count == 1, let character = press.characters.first,
+                  character.isLetter || character.isNumber || character.isPunctuation || character.isSymbol else { return .ignored }
+            query.append(character)
+            filterSelection = TextSelection(insertionPoint: query.endIndex)
+            // The filter row appears with this update; focus moves once it exists.
+            DispatchQueue.main.async { focus = .filter }
         }
         return .handled
     }

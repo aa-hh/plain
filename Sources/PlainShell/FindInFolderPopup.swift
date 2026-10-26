@@ -54,13 +54,14 @@ public struct FindInFolderPopup: View {
     let hits: [SearchHit]
     @Binding var query: String
     @Binding var selection: Int
-    let onPick: (SearchHit) -> Void
+    /// The picked hit and whether its file opens in a new tab (Cmd+Return, Option+click).
+    let onPick: (SearchHit, _ newTab: Bool) -> Void
     let onCancel: () -> Void
     @State private var toggled = Set<URL>()
 
     public init(
         folder: URL, hits: [SearchHit], query: Binding<String>, selection: Binding<Int>,
-        onPick: @escaping (SearchHit) -> Void, onCancel: @escaping () -> Void
+        onPick: @escaping (SearchHit, _ newTab: Bool) -> Void, onCancel: @escaping () -> Void
     ) {
         self.folder = folder
         self.hits = hits
@@ -74,13 +75,13 @@ public struct FindInFolderPopup: View {
         let rows = FindInFolderList.rows(FindInFolderList.groups(hits), toggled: toggled)
         PopupCard(
             placeholder: "Find in Folder", filter: $query, selection: $selection, rowCount: rows.count,
-            onPick: { pick(rows[$0]) }, onCancel: onCancel
+            onPick: { pick(rows[$0], newTab: false) }, onPickInNewTab: { pick(rows[$0], newTab: true) }, onCancel: onCancel
         ) { index in
             switch rows[index] {
             case .file(let group, let expanded):
                 HStack(spacing: 7) {
                     Text(FindInFolderList.relativePath(group.url, in: folder)).truncationMode(.head)
-                    Text("›").rotationEffect(.degrees(expanded ? 90 : 0))
+                    LucideIcon(name: expanded ? "chevron-down" : "chevron-right")
                 }
                 .foregroundStyle(Color.tertiaryText)
             case .hit(let hit):
@@ -90,12 +91,12 @@ public struct FindInFolderPopup: View {
         .onChange(of: query) { toggled = [] }
     }
 
-    private func pick(_ row: FindInFolderList.Row) {
+    private func pick(_ row: FindInFolderList.Row, newTab: Bool) {
         switch row {
         case .file(let group, _):
             if !toggled.insert(group.url).inserted { toggled.remove(group.url) }
         case .hit(let hit):
-            onPick(hit)
+            onPick(hit, newTab)
         }
     }
 

@@ -18,7 +18,8 @@ actor RenderQueue {
 public final class PreviewController {
     @ObservationIgnored public let page: any PreviewPage
     /// Opens a clicked link's target: a path for local files, the URL otherwise.
-    @ObservationIgnored public var openPath: (String) -> Void = { _ in }
+    /// Opens a link's path or URL; true opens it in a new tab.
+    @ObservationIgnored public var openPath: (String, _ newTab: Bool) -> Void = { _, _ in }
     /// Applies a task checkbox toggle to the editor's text, which passes it on to the `MarkdownDocument` (spec 507).
     @ObservationIgnored public var applyEdit: (TextEdit) -> Void = { _ in }
     /// The latest snapshot shown in the page.
@@ -48,7 +49,7 @@ public final class PreviewController {
         // The preview is the one consumer that draws a block provisionally; export reads the settled kinds.
         renderer.usesProvisionalKinds = true
         self.page.onTask = { [weak self] index in self?.toggleTask(index) }
-        self.page.onLink = { [weak self] href in self?.openLink(href) }
+        self.page.onLink = { [weak self] href, newTab in self?.openLink(href, newTab: newTab) }
     }
 
     /// The web view, when the page is a `WebPreviewPage`.
@@ -249,13 +250,13 @@ public final class PreviewController {
         applyEdit(TextEdit(range: NSRange(location: box.location + 1, length: 1), replacement: checked ? " " : "x"))
     }
 
-    func openLink(_ href: String) {
+    func openLink(_ href: String, newTab: Bool = false) {
         if href.hasPrefix("#") {
             page.send(.scrollToAnchor(String(href.dropFirst())))
         } else if let url = URL(string: href), url.isFileURL {
-            openPath(url.path)
+            openPath(url.path, newTab)
         } else {
-            openPath(href)
+            openPath(href, newTab)
         }
     }
 }

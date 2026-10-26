@@ -43,12 +43,13 @@ public struct GoToFilePopup: View {
     let gitMarks: [URL: GitMark]
     @Binding var query: String
     @Binding var selection: Int
-    let onOpen: (URL) -> Void
+    /// The picked file and whether it opens in a new tab (Cmd+Return, Option+click).
+    let onOpen: (URL, _ newTab: Bool) -> Void
     let onCancel: () -> Void
 
     public init(
         recents: [URL], allFiles: [URL], gitMarks: [URL: GitMark], query: Binding<String>, selection: Binding<Int>,
-        onOpen: @escaping (URL) -> Void, onCancel: @escaping () -> Void
+        onOpen: @escaping (URL, _ newTab: Bool) -> Void, onCancel: @escaping () -> Void
     ) {
         self.recents = recents
         self.allFiles = allFiles
@@ -63,14 +64,14 @@ public struct GoToFilePopup: View {
         let rows = GoToFileList.rows(recents: recents, allFiles: allFiles, query: query)
         PopupCard(
             placeholder: "Files", filter: $query, selection: $selection, rowCount: rows.count,
-            onPick: { onOpen(rows[$0].url) }, onCancel: onCancel
+            onPick: { onOpen(rows[$0].url, false) }, onPickInNewTab: { onOpen(rows[$0].url, true) }, onCancel: onCancel
         ) { index in
             let url = rows[index].url
             let name = url.deletingPathExtension().lastPathComponent
             let ext = url.pathExtension.isEmpty ? "" : "." + url.pathExtension
             let indexes = rows[index].match.indexes
             HStack(spacing: 0) {
-                FileIcon(kind: OpenableFiles.fileKind(for: url))
+                FileIcon(kind: OpenableFiles.fileKind(for: url)).padding(.trailing, 6)
                 Text(underlined(name, indexes: indexes))
                 Text(underlined(ext, indexes: indexes, offset: name.count)).foregroundStyle(Color.tertiaryText)
                 Text(" in \(GoToFileList.displayPath(of: url.deletingLastPathComponent()))")

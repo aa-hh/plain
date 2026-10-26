@@ -212,7 +212,7 @@ extension EditorTextView {
                 if OpenableFiles.imageExtensions.contains(file.pathExtension.lowercased()) {
                     links.append("![" + file.deletingPathExtension().lastPathComponent + "](" + relativePath(to: file) + ")")
                 } else if OpenableFiles.isOpenable(file) {
-                    actions.openPath(file)
+                    actions.openPath(file, true)
                 }
             }
             if !links.isEmpty {
