@@ -10,7 +10,7 @@ One Swift package, one target per module under `Sources/`. Each module lists the
 |---|---|---|
 | `PlainVendor` | nothing | KaTeX 0.19.0, Prism 1.30.0, the gemoji `emoji.json` and Roboto Mono, written by `scripts/fetch-vendor.sh`. `VendorFiles` gives their URLs. |
 | `PlainCore` | `PlainVendor` | `CommandTable` (every menu command, id and shortcut), `Preferences`, `Tokens` (colours, sizes, fonts), fuzzy filter, `slugify`, `TextStats`, `UserData` and `StateStore`, `OpenableFiles`, `EmojiTable`. |
-| `MarkdownDocument` | swift-markdown, `PlainCore`, `PlainVendor` | The `MarkdownDocument` actor, the only Markdown parser. Publishes `Snapshot` values: blocks, inlines, headings, reference definitions and Prism code tokens, with UTF-16 ranges. |
+| `MarkdownDocument` | swift-markdown, `PlainCore`, `PlainVendor` | The `MarkdownDocument` actor, the only Markdown parser. Publishes `Snapshot` values: blocks, inlines, headings, reference definitions and Prism code tokens, with UTF-16 ranges, and the kind to show for the caret's block while its kind is still ambiguous. |
 | `PlainDocument` | `PlainCore` | `Document` (one open file: text storage, undo manager, saving), `AutosaveController`, `FileHistory`, `Backups`, `UnsavedFiles`. |
 | `FolderIndex` | `PlainCore` | The `FolderIndex` actor (the window folder's file tree), find in folder, file operations. |
 | `GitStatus` | `PlainCore` | The `GitStatus` actor (file marks from `git status`, committed text from `git show`) and the line diff behind the editor's change marks. |

@@ -210,6 +210,10 @@ public struct Snapshot: Sendable {
     public let removedBlockIDs: Set<BlockID>
     /// The text range, in this snapshot's text, covering every edit and changed block since the previous snapshot.
     public let changedRange: NSRange
+    /// The kind to show for the block holding the caret while its kind is still ambiguous, by block id (issue 1).
+    /// Empty once that block settles or the caret leaves it. Every other block keeps the kind it settled with, so
+    /// the editor, the export and scroll sync read `Block.kind` as they always have.
+    public let provisionalKinds: [BlockID: BlockKind]
 
     /// The top-level block whose range holds the offset; an offset at a block's end counts as inside it.
     public func block(at offset: Int) -> Block? {

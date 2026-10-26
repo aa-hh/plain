@@ -306,7 +306,9 @@ struct Writer {
     /// Writes one block. `extra` goes inside the first opening tag; `tight` drops `<p>` around paragraphs.
     private mutating func block(_ block: Block, tight: Bool, extra: String = "", suffix: String = "") {
         let column = column(of: block.range.location)
-        switch block.kind {
+        // The caret's block shows the kind its snapshot holds provisionally; every other block its settled kind.
+        let provisional = snapshot.provisionalKinds[block.id]
+        switch provisional ?? block.kind {
         case .paragraph:
             if tight && extra.isEmpty && block.attributes.isEmpty {
                 inlines(block.inlines, column: column)
@@ -339,7 +341,7 @@ struct Writer {
             listItem(block, tight: tight)
 
         case .table:
-            table(block, extra: extra)
+            table(block, extra: extra, provisional: provisional != nil)
 
         case .fencedCode(let language):
             code(block, language: language, fenced: true, extra: extra)
@@ -437,10 +439,16 @@ struct Writer {
         raw("</li>\n")
     }
 
-    private mutating func table(_ block: Block, extra: String) {
+    private mutating func table(_ block: Block, extra: String, provisional: Bool) {
         let segments = lineSegments(block)
-        guard segments.count >= 2 else { return }
-        let pipes = block.markerRanges.filter { $0.length == 1 && units[$0.location] == 124 }.map(\.location)
+        guard provisional ? !segments.isEmpty : segments.count >= 2 else { return }
+        let pipes: [Int]
+        if provisional {
+            // A provisional table has no markers yet, so its pipes are read off its lines.
+            pipes = pipeOffsets(in: segments)
+        } else {
+            pipes = block.markerRanges.filter { $0.length == 1 && units[$0.location] == 124 }.map(\.location)
+        }
 
         func cells(_ segment: NSRange) -> [NSRange] {
             let start = segment.location
@@ -459,16 +467,18 @@ struct Writer {
         }
 
         var alignments: [String?] = []
-        var delimiterRow = string(segments[1]).trimmingCharacters(in: .whitespaces)
-        if delimiterRow.hasPrefix("|") { delimiterRow.removeFirst() }
-        if delimiterRow.hasSuffix("|") { delimiterRow.removeLast() }
-        for cell in delimiterRow.split(separator: "|", omittingEmptySubsequences: false) {
-            let text = cell.trimmingCharacters(in: .whitespaces)
-            switch (text.hasPrefix(":"), text.hasSuffix(":")) {
-            case (true, true): alignments.append("center")
-            case (false, true): alignments.append("right")
-            case (true, false): alignments.append("left")
-            default: alignments.append(nil)
+        if !provisional {
+            var delimiterRow = string(segments[1]).trimmingCharacters(in: .whitespaces)
+            if delimiterRow.hasPrefix("|") { delimiterRow.removeFirst() }
+            if delimiterRow.hasSuffix("|") { delimiterRow.removeLast() }
+            for cell in delimiterRow.split(separator: "|", omittingEmptySubsequences: false) {
+                let text = cell.trimmingCharacters(in: .whitespaces)
+                switch (text.hasPrefix(":"), text.hasSuffix(":")) {
+                case (true, true): alignments.append("center")
+                case (false, true): alignments.append("right")
+                case (true, false): alignments.append("left")
+                default: alignments.append(nil)
+                }
             }
         }
         let header = cells(segments[0])
@@ -480,9 +490,8 @@ struct Writer {
                 let alignment = index < alignments.count ? alignments[index] : nil
                 raw("<\(tag)" + (alignment.map { " style=\"text-align:\($0)\"" } ?? "") + ">")
                 if index < cellRanges.count {
-                    let cell = cellRanges[index]
-                    let content = block.inlines.filter { $0.range.location >= cell.location && NSMaxRange($0.range) <= NSMaxRange(cell) }
-                    inlines(content, column: 0)
+                    // A cell holds the text between its pipes, without the spaces around it.
+                    inlines(clip(block.inlines, to: trimmed(cellRanges[index])), column: 0)
                 }
                 raw("</\(tag)>\n")
             }
@@ -492,12 +501,61 @@ struct Writer {
         raw("<table" + extra + ">\n<thead>\n")
         row(header, tag: "th")
         raw("</thead>\n")
-        if segments.count > 2 {
+        // A provisional table has no delimiter row, so every line under the first one is a row.
+        let body = provisional ? segments.dropFirst() : segments.dropFirst(2)
+        if !body.isEmpty {
             raw("<tbody>\n")
-            for segment in segments[2...] { row(cells(segment), tag: "td") }
+            for segment in body { row(cells(segment), tag: "td") }
             raw("</tbody>\n")
         }
         raw("</table>\n")
+    }
+
+    /// The unescaped `|` offsets in `segments`.
+    private func pipeOffsets(in segments: [NSRange]) -> [Int] {
+        var result: [Int] = []
+        for segment in segments {
+            var index = segment.location
+            let end = NSMaxRange(segment)
+            while index < end {
+                if units[index] == 92 { index += 2; continue }
+                if units[index] == 124 { result.append(index) }
+                index += 1
+            }
+        }
+        return result
+    }
+
+    /// `range` without the spaces and tabs at either end.
+    private func trimmed(_ range: NSRange) -> NSRange {
+        var start = range.location
+        var end = NSMaxRange(range)
+        while start < end && (units[start] == 32 || units[start] == 9) { start += 1 }
+        while end > start && (units[end - 1] == 32 || units[end - 1] == 9) { end -= 1 }
+        return NSRange(location: start, length: end - start)
+    }
+
+    /// The inlines inside `range`. An inline that runs through an edge keeps the text it has inside it, which is
+    /// how a table row splits across cells.
+    private func clip(_ items: [Inline], to range: NSRange) -> [Inline] {
+        var result: [Inline] = []
+        for item in items {
+            let start = item.range.location
+            let end = NSMaxRange(item.range)
+            guard end > range.location && start < NSMaxRange(range) else { continue }
+            if start >= range.location && end <= NSMaxRange(range) { result.append(item); continue }
+            if item.children.isEmpty {
+                let from = max(start, range.location)
+                let to = min(end, NSMaxRange(range))
+                let contentFrom = max(item.contentRange.location, from)
+                let content = min(NSMaxRange(item.contentRange), to) - contentFrom
+                result.append(Inline(kind: .text, range: NSRange(location: from, length: to - from),
+                                     contentRange: NSRange(location: contentFrom, length: max(content, 0))))
+            } else {
+                result.append(contentsOf: clip(item.children, to: range))
+            }
+        }
+        return result
     }
 
     private mutating func code(_ block: Block, language: String?, fenced: Bool, extra: String) {

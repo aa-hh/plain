@@ -23,8 +23,10 @@ struct PostPass {
 
     /// Pre-pass, swift-markdown, post-pass over `lines`, which must start outside any block.
     /// `extraDefinitions` are reference definition lines from outside the lines, appended so links resolve.
+    /// `caretOffset` is where the caret sits, when the text came from an edit rather than a file on disk.
     static func parse(_ source: Source, lines: Range<Int>, kinds: [LineScanner.LineKind], extraDefinitions: [String],
-                      outsideFootnoteLabels: Set<String>, nextID: inout Int) -> [Block] {
+                      outsideFootnoteLabels: Set<String>, caretOffset: Int?, nextID: inout Int)
+        -> (blocks: [Block], provisional: (id: BlockID, kind: BlockKind)?) {
         let pre = PrePass.run(source, lines: lines, kinds: kinds)
         var text = pre.text
         if !extraDefinitions.isEmpty { text += "\n\n" + extraDefinitions.joined(separator: "\n") }
@@ -45,7 +47,43 @@ struct PostPass {
         }
         blocks.sort { $0.lineRange.lowerBound < $1.lineRange.lowerBound }
         nextID = pass.nextID
-        return blocks
+
+        // The caret's block keeps its settled kind; the snapshot carries the kind to show for it.
+        var provisional: (id: BlockID, kind: BlockKind)?
+        if let caretOffset {
+            let caretLine = source.line(containing: caretOffset)
+            if let index = blocks.firstIndex(where: { $0.lineRange.contains(caretLine) }),
+               case .paragraph = blocks[index].kind, let kind = pass.ambiguousKind(blocks[index]) {
+                provisional = (blocks[index].id, kind)
+            }
+        }
+        return (blocks, provisional)
+    }
+
+    // MARK: Ambiguous kinds
+
+    /// The kind to show for the caret's top-level paragraph while that kind is still ambiguous (issue 1).
+    /// A setext underline and a bare list marker settle the block the moment their first character lands, and a
+    /// fence, math block or blockquote opens on its own first line, so a table is the only kind left: a line holding
+    /// a `|` is a table once a delimiter row follows it, and until then a run of `|` lines is held as one, the way
+    /// Claude's scanner opens a table on any line holding a `|` and closes it at a blank line.
+    func ambiguousKind(_ paragraph: Block) -> BlockKind? {
+        let lines = paragraph.lineRange
+        guard !lines.isEmpty else { return nil }
+        // A run of table lines starts after a blank line, or at the top of the document.
+        if lines.lowerBound > 0 && !source.isBlank(lines.lowerBound - 1) { return nil }
+        for line in lines {
+            var index = source.lineStart(line)
+            let end = source.lineEnd(line)
+            var pipe = false
+            while index < end {
+                if units[index] == 92 { index += 2; continue }
+                if units[index] == 124 { pipe = true }
+                index += 1
+            }
+            guard pipe else { return nil }
+        }
+        return .table
     }
 
     // MARK: Positions
