@@ -73,4 +73,19 @@ final class PreviewControllerTests: XCTestCase {
         XCTAssertEqual(page.messages.count, 1, "\(page.messages)")
         XCTAssertTrue(page.updates.first?.patches.first?.html.contains("betazzzzzzzzzz") == true)
     }
+
+    // Turns red if a block the caret is still typing sends a full document replace instead of one patch (issue 1).
+    func testProvisionalBlockSendsOnePatch() async {
+        let (controller, page, document) = await makeController("one\n\n| a | b |\n\nthree")
+        let table = controller.snapshot!.blocks[1]
+        document.apply(TextEdit(range: NSRange(location: table.range.location + 1, length: 0), replacement: "x"))
+        await waitForMessages(page)
+        withExtendedLifetime(controller) {}
+        XCTAssertEqual(page.messages.count, 1, "\(page.messages)")
+        XCTAssertEqual(page.updates.first?.removals, [])
+        XCTAssertEqual(page.updates.first?.patches.count, 1)
+        XCTAssertEqual(page.updates.first?.patches.first?.id, String(table.id.rawValue))
+        XCTAssertTrue(page.updates.first?.patches.first?.html.contains("<table") == true)
+        XCTAssertNil(page.updates.first?.patches.first?.before)
+    }
 }

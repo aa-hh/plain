@@ -24,16 +24,17 @@ public actor MarkdownDocument {
         let source = Source(units: Array(text.utf16))
         var nextID = 0
         let kinds = LineScanner(source: source).scan(0..<source.lineCount).kinds
-        let blocks = PostPass.parse(source, lines: 0..<source.lineCount, kinds: kinds, extraDefinitions: [],
-                                    outsideFootnoteLabels: [], nextID: &nextID)
+        let parsed = PostPass.parse(source, lines: 0..<source.lineCount, kinds: kinds, extraDefinitions: [],
+                                    outsideFootnoteLabels: [], caretOffset: nil, nextID: &nextID)
         var slugs: [String: String] = [:]
         self.source = source
         self.nextID = nextID
-        footnoteLabels = Self.footnoteLabels(in: blocks)
-        current = Snapshot(version: TextVersion(rawValue: 0), text: Self.string(source.units), blocks: blocks,
-                           headings: Self.headings(in: blocks, slugs: &slugs), referenceDefinitions: Self.definitions(in: blocks),
-                           changedBlockIDs: Set(blocks.map(\.id)), removedBlockIDs: [],
-                           changedRange: NSRange(location: 0, length: source.units.count))
+        footnoteLabels = Self.footnoteLabels(in: parsed.blocks)
+        current = Snapshot(version: TextVersion(rawValue: 0), text: Self.string(source.units), blocks: parsed.blocks,
+                           headings: Self.headings(in: parsed.blocks, slugs: &slugs),
+                           referenceDefinitions: Self.definitions(in: parsed.blocks),
+                           changedBlockIDs: Set(parsed.blocks.map(\.id)), removedBlockIDs: [],
+                           changedRange: NSRange(location: 0, length: source.units.count), provisionalKinds: [:])
         self.slugs = slugs
     }
 
@@ -110,12 +111,15 @@ public actor MarkdownDocument {
         var start = Int.max
         var end = Int.min
         var delta = 0
+        // The caret sits where the last edit left it, which is the only word the parser gets about it.
+        var caret = 0
         for edit in edits {
             let location = min(max(edit.range.location, 0), source.units.count)
             let length = min(max(edit.range.length, 0), source.units.count - location)
             let replacement = Array(edit.replacement.utf16)
             source.units.replaceSubrange(location..<(location + length), with: replacement)
             let inserted = replacement.count
+            caret = min(location + inserted, source.units.count)
             if start == Int.max {
                 start = location
                 end = location + inserted
@@ -148,6 +152,7 @@ public actor MarkdownDocument {
 
         var full = false
         var newBlocks: [Block] = []
+        var provisional: [BlockID: BlockKind] = [:]
         var attempts = 0
         while true {
             windowEnd = min(windowEnd, oldLineCount)
@@ -163,8 +168,11 @@ public actor MarkdownDocument {
                 continue
             }
             var nextID = self.nextID
-            newBlocks = PostPass.parse(source, lines: lines, kinds: kinds, extraDefinitions: extraDefinitions(for: lines),
-                                       outsideFootnoteLabels: footnoteLabels, nextID: &nextID)
+            let parsed = PostPass.parse(source, lines: lines, kinds: kinds, extraDefinitions: extraDefinitions(for: lines),
+                                        outsideFootnoteLabels: footnoteLabels, caretOffset: caret, nextID: &nextID)
+            newBlocks = parsed.blocks
+            // A widened window parses again, so only the last parse's provisional block counts.
+            provisional = parsed.provisional.map { [$0.id: $0.kind] } ?? [:]
             self.nextID = nextID
             let covered = old.filter { $0.lineRange.lowerBound >= windowStart && $0.lineRange.lowerBound < windowEnd }
             if windowEnd < oldLineCount && !Self.endsStable(newBlocks.last, covered.last, start: start, oldEnd: oldEnd, delta: delta, lineDelta: lineDelta) {
@@ -185,8 +193,10 @@ public actor MarkdownDocument {
         if full {
             var nextID = self.nextID
             let kinds = LineScanner(source: source).scan(0..<source.lineCount).kinds
-            newBlocks = PostPass.parse(source, lines: 0..<source.lineCount, kinds: kinds, extraDefinitions: [],
-                                       outsideFootnoteLabels: [], nextID: &nextID)
+            let parsed = PostPass.parse(source, lines: 0..<source.lineCount, kinds: kinds, extraDefinitions: [],
+                                        outsideFootnoteLabels: [], caretOffset: caret, nextID: &nextID)
+            newBlocks = parsed.blocks
+            provisional = parsed.provisional.map { [$0.id: $0.kind] } ?? [:]
             self.nextID = nextID
             coveredRange = 0..<old.count
         } else {
@@ -230,9 +240,12 @@ public actor MarkdownDocument {
         if full || touchedKinds.contains(where: { if case .footnoteDefinition = $0 { true } else { false } }) {
             footnoteLabels = Self.footnoteLabels(in: merged)
         }
+        // The caret's block is rendered provisionally, so the preview has to patch it too.
+        changed.formUnion(provisional.keys)
         return Snapshot(version: version, text: Self.string(source.units), blocks: merged,
                         headings: Self.headings(in: merged, slugs: &slugs), referenceDefinitions: definitions,
-                        changedBlockIDs: changed, removedBlockIDs: removed, changedRange: changedRange)
+                        changedBlockIDs: changed, removedBlockIDs: removed, changedRange: changedRange,
+                        provisionalKinds: provisional)
     }
 
     /// Definitions from outside the window whose label could be referenced inside it, as `[label]: destination` lines.

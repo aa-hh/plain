@@ -34,6 +34,32 @@ final class HTMLRendererTests: XCTestCase {
         XCTAssertTrue(html.contains("<s>gone</s>"), html)
     }
 
+    // Turns red if a table row still under the caret stops rendering as a table, or its rows lose their cells.
+    func testProvisionalTableRendersRows() async {
+        let document = MarkdownDocument(text: "")
+        let version = document.apply(TextEdit(range: NSRange(location: 0, length: 0),
+                                             replacement: "| a | b |\n| c | d |"))
+        let snapshot = await document.snapshot(atLeast: version)
+        XCTAssertEqual(snapshot.provisionalKinds.count, 1)
+        let html = HTMLRenderer(math: FakeMathRenderer()).html(for: snapshot)
+        XCTAssertTrue(html.contains("<th>a</th>"), html)
+        XCTAssertTrue(html.contains("<th>b</th>"), html)
+        XCTAssertTrue(html.contains("<td>c</td>"), html)
+        XCTAssertTrue(html.contains("<td>d</td>"), html)
+    }
+
+    // Turns red if the first row of a table stops rendering before its delimiter row exists (issue 1).
+    func testProvisionalTableWithOneRow() async {
+        let document = MarkdownDocument(text: "")
+        let version = document.apply(TextEdit(range: NSRange(location: 0, length: 0), replacement: "| a | b |"))
+        let snapshot = await document.snapshot(atLeast: version)
+        XCTAssertEqual(snapshot.provisionalKinds.count, 1)
+        let html = HTMLRenderer(math: FakeMathRenderer()).html(for: snapshot)
+        XCTAssertTrue(html.contains("<th>a</th>"), html)
+        XCTAssertTrue(html.contains("<th>b</th>"), html)
+        XCTAssertFalse(html.contains("<tbody>"), html)
+    }
+
     // Turns red if bare URLs without a scheme get linked or emails stop linking (spec 462).
     func testAutolinksNeedAScheme() async {
         let html = await renderHTML("https://a.b and www.a.b and a@b.c and <https://x.y>")
