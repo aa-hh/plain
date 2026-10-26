@@ -85,8 +85,8 @@ Two of Plain's own state files were set so the app opens showing the new work. B
 
 ## Repo facts
 
-- No git remote. Nothing is pushed. Branches: `main` (current), `plain-build` (same commits as an earlier point, kept).
-- `.claude/worktrees/` is empty and can be deleted.
+- The remote is `origin`, https://github.com/aa-hh/plain (private). `main` is pushed. `plain-build` (same commits as an earlier point, kept) is not.
+- On 26 October every commit's author and committer address was rewritten from alechendersonh@gmail.com to the `aa-hh` noreply address, because GitHub refuses pushes that publish the gmail one. Commit ids changed; the old ones are kept under `refs/original/`.
 - Caret's own settings remain in `~/Library/Application Support/Caret Beta`; Plain's are in `~/Library/Application Support/Plain`.
 
 ## Working with Alec
