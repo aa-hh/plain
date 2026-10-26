@@ -466,93 +466,6 @@ enum HiddenRanges {
     }
 }
 
-/// The page's text as a reader sees it: what Copy writes as plain text and what Find searches.
-@MainActor
-enum VisibleText {
-    static func plain(text: NSString, snapshot: Snapshot, range: NSRange, columnWidth: CGFloat) -> String {
-        map(text: text, snapshot: snapshot, range: range, columnWidth: columnWidth).string
-    }
-
-    /// The visible text of `range` and, per UTF-16 unit of it, the source offset it came from (a replacement maps to
-    /// the location of what it replaced), plus one entry for the end.
-    static func map(text: NSString, snapshot: Snapshot, range: NSRange, columnWidth: CGFloat) -> (string: String, offsets: [Int]) {
-        let hiddenRanges = HiddenRanges.list(in: range, snapshot: snapshot, text: text, columnWidth: columnWidth, caret: nil)
-        var edits: [(range: NSRange, text: String)] = []
-        edits.reserveCapacity(hiddenRanges.count)
-        for hidden in hiddenRanges {
-            let part = NSIntersectionRange(hidden.range, range)
-            guard part.length > 0 else { continue }
-            edits.append((part, part.length == hidden.range.length ? hidden.copyAs : ""))
-        }
-        // Edits for front matter, maths and image lines, clipped to `range`; the hidden ones above already are.
-        var blockEdits: [(range: NSRange, text: String)] = []
-        for block in blocksMeeting(range, in: snapshot) {
-            switch block.kind {
-            case .frontMatter, .mathBlock:
-                let first = HiddenRanges.lineContents(at: block.range.location, in: text)
-                let last = HiddenRanges.lineContents(at: NSMaxRange(block.range), in: text)
-                guard last.location > first.location else { continue }
-                if NSMaxRange(first) < text.length { blockEdits.append((NSRange(location: first.location, length: first.length + 1), "")) }
-                let closing = text.substring(with: last).trimmingCharacters(in: .whitespaces)
-                if block.kind == .frontMatter ? closing == "---" || closing == "..." : closing.allSatisfy({ $0 == "$" }) && closing.count >= 2 {
-                    blockEdits.append((NSRange(location: last.location - 1, length: last.length + 1), ""))
-                }
-            case .paragraph where HiddenRanges.isImageOnly(block, text: text):
-                let inline = block.inlines[0]
-                let alt: String
-                if case .image(_, let text) = inline.kind { alt = text } else { alt = text.substring(with: inline.contentRange) }
-                blockEdits.append((inline.range, alt))
-            default:
-                break
-            }
-        }
-        edits += blockEdits.map { (NSIntersectionRange($0.range, range), $0.text) }.filter { $0.range.length > 0 || !$0.text.isEmpty }
-        edits.sort { $0.range.location < $1.range.location }
-
-        // The range's characters are read once; shown runs are copied from them in one go.
-        var source = [unichar](repeating: 0, count: range.length)
-        text.getCharacters(&source, range: range)
-        var units: [unichar] = []
-        var offsets: [Int] = []
-        units.reserveCapacity(range.length + 1)
-        offsets.reserveCapacity(range.length + 1)
-        var cursor = range.location
-        func copy(upTo end: Int) {
-            guard cursor < end else { return }
-            units.append(contentsOf: source[(cursor - range.location)..<(end - range.location)])
-            offsets.append(contentsOf: cursor..<end)
-            cursor = end
-        }
-        for edit in edits where edit.range.location >= cursor {
-            copy(upTo: edit.range.location)
-            for unit in edit.text.utf16 {
-                units.append(unit)
-                offsets.append(edit.range.location)
-            }
-            cursor = NSMaxRange(edit.range)
-        }
-        copy(upTo: NSMaxRange(range))
-        offsets.append(NSMaxRange(range))
-        return (String(utf16CodeUnits: units, count: units.count), offsets)
-    }
-
-    /// Every block, nested ones included, that meets `range`.
-    static func blocksMeeting(_ range: NSRange, in snapshot: Snapshot) -> [Block] {
-        var result: [Block] = []
-        func visit(_ block: Block) {
-            guard block.range.location <= NSMaxRange(range), NSMaxRange(block.range) >= range.location else { return }
-            result.append(block)
-            block.children.forEach(visit)
-        }
-        var index = MarkdownStyler.firstBlockIndex(at: range.location, in: snapshot.blocks)
-        while index < snapshot.blocks.count, snapshot.blocks[index].range.location <= NSMaxRange(range) {
-            visit(snapshot.blocks[index])
-            index += 1
-        }
-        return result
-    }
-}
-
 // MARK: - Snapping the page's carets and selections
 
 extension EditorTextView {
@@ -573,13 +486,19 @@ extension EditorTextView {
 
     /// The page's version of a selection NSTextView is about to set, from the main selection before the change.
     func pageAdjusted(_ new: NSRange, previous: NSRange) -> NSRange {
-        guard let move = pageMove else {
-            // Only the ends move, so each is snapped with the hidden ranges around it alone; listing the whole span
-            // would read every hidden range in the file for a Select All.
-            func snapped(_ p: Int, isEnd: Bool) -> Int {
-                guard let ranges = pageHiddenRanges(around: NSRange(location: p, length: 0)) else { return p }
-                return HiddenRanges.snap(p, ranges: ranges, isEnd: isEnd)
+        // Only the ends move, so each is snapped with the hidden ranges around it alone; listing the whole span
+        // would read every hidden range in the file for a Select All.
+        func snapped(_ p: Int, isEnd: Bool) -> Int {
+            var point = p
+            for _ in 0..<8 {
+                guard let ranges = pageHiddenRanges(around: NSRange(location: point, length: 0)) else { return point }
+                let next = HiddenRanges.snap(point, ranges: ranges, isEnd: isEnd)
+                if next == point { return point }
+                point = next
             }
+            return point
+        }
+        guard let move = pageMove else {
             if new.length == 0 {
                 if new.location == allowedCaret { return new }
                 return NSRange(location: snapped(new.location, isEnd: false), length: 0)
@@ -588,8 +507,6 @@ extension EditorTextView {
             let end = snapped(NSMaxRange(new), isEnd: true)
             return NSRange(location: min(start, end), length: abs(end - start))
         }
-        let span = NSUnionRange(new, previous)
-        guard let ranges = pageHiddenRanges(around: span) else { return new }
         let text = nsText
         // Which end moved, where it was, and the end that stayed.
         let moved: (from: Int, to: Int, anchor: Int?)
@@ -601,10 +518,12 @@ extension EditorTextView {
         } else if NSMaxRange(new) == NSMaxRange(previous), new.location != previous.location {
             moved = (previous.location, new.location, NSMaxRange(new))
         } else {
-            let start = HiddenRanges.snap(new.location, ranges: ranges, isEnd: true)
-            let end = HiddenRanges.snap(NSMaxRange(new), ranges: ranges, isEnd: true)
+            let start = snapped(new.location, isEnd: true)
+            let end = snapped(NSMaxRange(new), isEnd: true)
             return NSRange(location: min(start, end), length: abs(end - start))
         }
+        let span = NSUnionRange(NSRange(location: moved.from, length: 0), NSRange(location: moved.to, length: 0))
+        guard let ranges = pageHiddenRanges(around: span) else { return new }
         let isEnd = moved.anchor != nil
         var position: Int
         if move.vertical {
@@ -613,12 +532,13 @@ extension EditorTextView {
         } else {
             position = HiddenRanges.step(from: moved.from, to: moved.to, direction: move.direction, ranges: ranges, isEnd: isEnd, text: text)
         }
-        guard let anchor = moved.anchor.map({ HiddenRanges.snap($0, ranges: ranges, isEnd: true) }) else {
-            return NSRange(location: position, length: 0)
-        }
+        guard let start = moved.anchor else { return NSRange(location: position, length: 0) }
+        let anchorRanges = pageHiddenRanges(around: NSRange(location: start, length: 0)) ?? ranges
+        let anchor = HiddenRanges.snap(start, ranges: anchorRanges, isEnd: true)
         let result = NSRange(location: min(anchor, position), length: abs(position - anchor))
-        // A selection holding nothing shown collapses to its anchor.
-        if result.length > 0, !HiddenRanges.hasVisible(between: result.location, and: NSMaxRange(result), ranges: ranges) {
+        // A selection holding nothing shown collapses to its anchor. The check is exact only within the lines listed
+        // around the moved end and the anchor; a selection reaching beyond them counts as holding shown text.
+        if result.length > 0, !HiddenRanges.hasVisible(between: result.location, and: NSMaxRange(result), ranges: ranges + anchorRanges) {
             return NSRange(location: anchor, length: 0)
         }
         return result

@@ -25,6 +25,8 @@ public enum BlockKind: Hashable, Sendable {
     case table
     case fencedCode(language: String?)
     case indentedCode
+    /// Markers are the two fence lines, then per key line in text order its colon with the spaces after it and, when
+    /// the value is a `[...]` list, its `[` and `]`.
     case frontMatter
     case mathBlock
     case htmlBlock

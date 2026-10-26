@@ -303,6 +303,7 @@ public final class EditorTextView: NSTextView, @preconcurrency NSTextLayoutManag
             closeSelectionToolbar()
             closeTableGrid()
             setAllSelections(allSelections)
+            findTextChanged()
         }
     }
 
@@ -406,7 +407,7 @@ public final class EditorTextView: NSTextView, @preconcurrency NSTextLayoutManag
             extraSelections = extraSelections.map { Self.map($0, location: old.location, oldLength: old.length, newLength: edited.length) }
         }
         recordEditLocation(edited)
-        findTextChanged()
+        findTextEdited(location: old.location, oldLength: old.length, newLength: edited.length)
         spellingTextEdited(edited, delta: delta)
         if gitStatus != nil { scheduleGitMarks() }
         if delta > 0, replacement.contains("\n") { lineBreakObserver?() }
@@ -699,10 +700,20 @@ public final class EditorTextView: NSTextView, @preconcurrency NSTextLayoutManag
         let page = Tokens.page
         let width = NSAttributedString(string: label, attributes: [.font: NSFont.systemFont(ofSize: page.codeHeaderSize)]).size().width
         let first = rect(forCharacterRange: NSRange(location: line.location, length: 0))
-        let hit = NSRect(x: columnLeft + page.codePadSides, y: first.minY + page.codePadTop, width: width + 4 + page.codeHeaderSize, height: 18)
+        let hit = NSRect(x: columnLeft + codePanelLeft(fenceLineStart: line.location) + page.codePadSides, y: first.minY + page.codePadTop,
+                         width: width + 4 + page.codeHeaderSize, height: 18)
         guard hit.contains(point) else { return false }
         openLanguageList(fenceLineStart: line.location)
         return true
+    }
+
+    /// Where the code panel of the fence line at `fenceLineStart` starts, from the column's left edge: the indent of the
+    /// first code line less the 32 pt code padding, as `EditorLayoutFragment.panelLeft` reads it.
+    func codePanelLeft(fenceLineStart: Int) -> CGFloat {
+        let next = NSMaxRange(nsText.lineRange(for: NSRange(location: fenceLineStart, length: 0)))
+        guard next < nsText.length,
+              let style = document.textStorage.attribute(.paragraphStyle, at: next, effectiveRange: nil) as? NSParagraphStyle else { return 0 }
+        return max(style.headIndent - Tokens.page.codePadSides, 0)
     }
 
     public override func updateTrackingAreas() {

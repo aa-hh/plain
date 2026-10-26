@@ -241,7 +241,7 @@ final class FormatCommandTests: XCTestCase {
         for (kind, result) in zip(PageBlockKind.turnIntoKinds, expected) {
             let editor = await page("hello")
             let block = editor.pageBlocks()[0]
-            let change = PageBlocks.turnInto(block, to: kind, text: editor.nsText)
+            let change = PageBlocks.turnInto(block, to: kind, text: editor.nsText, snapshot: editor.snapshot!)
             editor.apply(change.edits, caret: change.caret)
             await editor.settle()
             XCTAssertEqual(editor.text, result, kind.title)
@@ -250,12 +250,12 @@ final class FormatCommandTests: XCTestCase {
             XCTAssertEqual(editor.text, "hello", kind.title)
         }
         let heading = await page("## hello")
-        let change = PageBlocks.turnInto(heading.pageBlocks()[0], to: .bulleted, text: heading.nsText)
+        let change = PageBlocks.turnInto(heading.pageBlocks()[0], to: .bulleted, text: heading.nsText, snapshot: heading.snapshot!)
         heading.apply(change.edits, caret: change.caret)
         await heading.settle()
         XCTAssertEqual(heading.text, "- hello")
         let code = await page("```\nhello\n```")
-        let back = PageBlocks.turnInto(code.pageBlocks()[0], to: .text, text: code.nsText)
+        let back = PageBlocks.turnInto(code.pageBlocks()[0], to: .text, text: code.nsText, snapshot: code.snapshot!)
         code.apply(back.edits, caret: back.caret)
         await code.settle()
         XCTAssertEqual(code.text, "hello")
@@ -266,11 +266,46 @@ final class FormatCommandTests: XCTestCase {
         for (kind, result) in [(PageBlockKind.text, "Title"), (.heading(1), "# Title"), (.bulleted, "- Title")] {
             let editor = await page("Title\n---")
             XCTAssertEqual(editor.pageBlocks().first?.kind, .heading(2))
-            let change = PageBlocks.turnInto(editor.pageBlocks()[0], to: kind, text: editor.nsText)
+            let change = PageBlocks.turnInto(editor.pageBlocks()[0], to: kind, text: editor.nsText, snapshot: editor.snapshot!)
             XCTAssertEqual(change.edits.count, 1)
             editor.apply(change.edits, caret: change.caret)
             await editor.settle()
             XCTAssertEqual(editor.text, result, kind.title)
+        }
+    }
+
+    // Turns red if a multi-line setext heading turned into a heading keeps its line break, leaving a one-line heading
+    // over a paragraph.
+    func testPageTurnIntoMultiLineSetextHeadingJoinsLines() async {
+        let editor = await page("Line one\nLine two\n---")
+        XCTAssertEqual(editor.pageBlocks()[0].kind, .heading(2))
+        let change = PageBlocks.turnInto(editor.pageBlocks()[0], to: .heading(1), text: editor.nsText, snapshot: editor.snapshot!)
+        editor.apply(change.edits, caret: change.caret)
+        await editor.settle()
+        XCTAssertEqual(editor.text, "# Line one Line two")
+        let equals = await page("Line one  \nLine two\n===")
+        let second = PageBlocks.turnInto(equals.pageBlocks()[0], to: .heading(2), text: equals.nsText, snapshot: equals.snapshot!)
+        equals.apply(second.edits, caret: second.caret)
+        await equals.settle()
+        XCTAssertEqual(equals.text, "## Line one Line two")
+    }
+
+    // Turns red if Turn into stops reading the prefix, box or indent of the block it rewrites, or the number of the
+    // numbered item above.
+    func testPageTurnIntoNumberedContinuesFromItemAbove() async {
+        let cases: [(String, Int, PageBlockKind, String)] = [
+            ("1. a\n- b", 1, .numbered, "1. a\n2. b"),
+            ("- [ ] t", 0, .text, "t"),
+            ("  - x", 0, .heading(1), "# x"),
+        ]
+        for (markdown, index, kind, expected) in cases {
+            let editor = await page(markdown)
+            let block = editor.pageBlocks()[index]
+            XCTAssertTrue(block.isItem, markdown)
+            let change = PageBlocks.turnInto(block, to: kind, text: editor.nsText, snapshot: editor.snapshot!)
+            editor.apply(change.edits, caret: change.caret)
+            await editor.settle()
+            XCTAssertEqual(editor.text, expected, markdown)
         }
     }
 

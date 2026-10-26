@@ -447,15 +447,15 @@ extension EditorTextView {
     /// Turns every text-holding block the shown selection touches into `kind`, as one undo step; tables, dividers,
     /// pictures, maths and code blocks stay as they are.
     func selectionToolbarTurnInto(_ kind: PageBlockKind) {
-        guard let range = selectionToolbar.shown else { return }
+        guard let range = selectionToolbar.shown, let snapshot else { return }
         let text = nsText
         let touched = pageBlocks().filter { block in
             block.range.location < NSMaxRange(range) && NSMaxRange(block.range) >= range.location && block.kind.canTurnInto
         }
         closeSelectionToolbar()
         guard let first = touched.first else { return }
-        let edits = touched.flatMap { PageBlocks.turnInto($0, to: kind, text: text).edits }
-        apply(edits, caret: PageBlocks.turnInto(first, to: kind, text: text).caret)
+        let edits = touched.flatMap { PageBlocks.turnInto($0, to: kind, text: text, snapshot: snapshot).edits }
+        apply(edits, caret: PageBlocks.turnInto(first, to: kind, text: text, snapshot: snapshot).caret)
     }
 
     // MARK: Link editor

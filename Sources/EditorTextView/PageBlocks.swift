@@ -74,6 +74,9 @@ struct PageBlock: Equatable {
     var fullRange: NSRange
     var kind: PageBlockKind
     var depth: Int
+    /// The snapshot block's markers: a heading's `#` run or setext underline, an item's marker then its task box,
+    /// a quote's `>` per line.
+    var markerRanges: [NSRange]
 
     var isItem: Bool { kind.isItem }
 }
@@ -104,7 +107,7 @@ enum PageBlocks {
 
     private static func pageBlocks(of block: Block, text: NSString) -> [PageBlock] {
         let lines = wholeLines(block.range.location, NSMaxRange(block.range), text: text)
-        func single(_ kind: PageBlockKind) -> [PageBlock] { [PageBlock(range: lines, fullRange: lines, kind: kind, depth: 0)] }
+        func single(_ kind: PageBlockKind) -> [PageBlock] { [PageBlock(range: lines, fullRange: lines, kind: kind, depth: 0, markerRanges: block.markerRanges)] }
         switch block.kind {
         case .paragraph: return single(HiddenRanges.isImageOnly(block, text: text) ? .image : .text)
         case .atxHeading(let level), .setextHeading(let level): return single(.heading(level))
@@ -137,7 +140,7 @@ enum PageBlocks {
                 let nestedStart = HiddenRanges.lineContents(at: first.range.location, in: text).location
                 own = NSRange(location: full.location, length: max(nestedStart - 1 - full.location, 0))
             }
-            result.append(PageBlock(range: own, fullRange: full, kind: kind, depth: depth))
+            result.append(PageBlock(range: own, fullRange: full, kind: kind, depth: depth, markerRanges: item.markerRanges))
             for child in nested { result += items(of: child, depth: depth + 1, text: text) }
         }
         return result
@@ -238,39 +241,59 @@ enum PageBlocks {
         }
     }
 
-    static let prefixRegex = try! NSRegularExpression(pattern: #"^([ \t]*)(#{1,6} +|[-*+] +\[[ xX]\] +|[-*+] +|[0-9]{1,9}[.)] +|> ?)?"#)
-
-    /// The line's indentation and its block prefix after it.
-    static func linePrefix(_ line: String) -> (indent: String, prefix: String) {
-        let ns = line as NSString
-        guard let match = prefixRegex.firstMatch(in: line, range: NSRange(location: 0, length: ns.length)) else { return ("", "") }
-        let indent = ns.substring(with: match.range(at: 1))
-        let prefix = match.range(at: 2).location == NSNotFound ? "" : ns.substring(with: match.range(at: 2))
-        return (indent, prefix)
-    }
-
-    /// Rewrites `block` as `kind`: the first line's prefix changes; quotes change every line; code adds or removes
-    /// the fence lines; list kinds keep the indentation, other kinds drop it.
-    static func turnInto(_ block: PageBlock, to kind: PageBlockKind, text: NSString) -> (edits: [TextEdit], caret: Int?) {
+    /// Rewrites `block` as `kind`, reading its prefixes from the snapshot's markers: the first line's prefix changes;
+    /// quotes change every line; code adds or removes the fence lines; list kinds keep the indentation, other kinds
+    /// drop it; a heading joins the block's lines into one.
+    static func turnInto(_ block: PageBlock, to kind: PageBlockKind, text: NSString, snapshot: Snapshot) -> (edits: [TextEdit], caret: Int?) {
         var lines = text.substring(with: block.range).components(separatedBy: "\n")
+        var starts: [Int] = []
+        var at = block.range.location
+        for line in lines {
+            starts.append(at)
+            at += (line as NSString).length + 1
+        }
+        let markers = block.markerRanges
+        var indent = ""
+        var isHeading = false
+        // A block with no prefix marker on its first line still loses its indentation there; list kinds put it back.
+        func cutIndent() {
+            let first = lines[0] as NSString
+            var end = 0
+            while end < first.length, first.character(at: end) == 32 || first.character(at: end) == 9 { end += 1 }
+            indent = first.substring(to: end)
+            lines[0] = first.substring(from: end)
+        }
+        if case .heading = block.kind { isHeading = true }
         if block.kind == .code, lines.count >= 2 {
             lines.removeFirst()
             if let last = lines.last, last.trimmingCharacters(in: .whitespaces).hasPrefix("```") || last.trimmingCharacters(in: .whitespaces).hasPrefix("~~~") {
                 lines.removeLast()
             }
         } else if block.kind == .quote {
-            lines = lines.map { line in
-                let parts = linePrefix(line)
-                return parts.prefix.hasPrefix(">") ? String(line.dropFirst(parts.indent.count + parts.prefix.count)) : line
+            lines = zip(lines, starts).map { line, start in
+                let ns = line as NSString
+                guard let marker = markers.first(where: { $0.location >= start && $0.location < start + ns.length }) else { return line }
+                var cut = NSMaxRange(marker) - start
+                if cut < ns.length, ns.character(at: cut) == 32 { cut += 1 }
+                return ns.substring(from: cut)
             }
-        } else if case .heading = block.kind, lines.count >= 2, let last = lines.last?.trimmingCharacters(in: .whitespaces),
-                  !last.isEmpty, last.allSatisfy({ $0 == "-" }) || last.allSatisfy({ $0 == "=" }) {
+        } else if isHeading, let first = markers.first, lines.count >= 2, first.location >= starts[1] {
             // A setext heading: its `---` or `===` underline goes in the same edit as the prefix rewrite.
             lines.removeLast()
+            cutIndent()
+        } else if isHeading || block.isItem, let first = markers.first {
+            let lineEnd = starts[0] + (lines[0] as NSString).length
+            var end = NSMaxRange(first)
+            if case .task = block.kind, markers.count >= 2 { end = NSMaxRange(markers[1]) }
+            while end < lineEnd, text.character(at: end) == 32 || text.character(at: end) == 9 { end += 1 }
+            indent = text.substring(with: NSRange(location: starts[0], length: first.location - starts[0]))
+            lines[0] = text.substring(with: NSRange(location: end, length: lineEnd - end))
+        } else if block.kind != .code {
+            cutIndent()
         }
-        if block.kind != .code, block.kind != .quote, let first = lines.first {
-            let parts = linePrefix(first)
-            lines[0] = (kind.isItem ? parts.indent : "") + String(first.dropFirst(parts.indent.count + parts.prefix.count))
+        if case .heading = kind {
+            // A heading is one line, so a multi-line block's lines join with one space.
+            lines = [lines.map { $0.trimmingCharacters(in: CharacterSet(charactersIn: " \t")) }.joined(separator: " ")]
         }
         let result: String
         switch kind {
@@ -280,15 +303,14 @@ enum PageBlocks {
             result = lines.map { "> " + $0 }.joined(separator: "\n")
         default:
             var number = 1
-            if kind == .numbered, block.range.location > 0 {
-                let above = text.substring(with: HiddenRanges.lineContents(at: block.range.location - 1, in: text))
-                let indent = linePrefix(lines.first ?? "").indent
-                let abovePrefix = linePrefix(above)
-                if abovePrefix.indent == indent, let value = Int(abovePrefix.prefix.prefix { $0.isNumber }) { number = value + 1 }
+            if kind == .numbered, block.range.location > 0,
+               let above = PageBlocks.block(at: block.range.location - 1, snapshot: snapshot, text: text),
+               above.kind == .numbered, above.depth == block.depth, let marker = above.markerRanges.first,
+               let value = Int(text.substring(with: marker).prefix { $0.isNumber }) {
+                number = value + 1
             }
             if let first = lines.first {
-                let indent = linePrefix(first).indent
-                lines[0] = indent + prefix(kind, number: number) + String(first.dropFirst(indent.count))
+                lines[0] = (kind.isItem ? indent : "") + prefix(kind, number: number) + first
             }
             result = lines.joined(separator: "\n")
         }

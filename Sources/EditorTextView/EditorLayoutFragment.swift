@@ -236,7 +236,7 @@ final class EditorLayoutFragment: NSTextLayoutFragment {
         if let slice = attributes.attribute(.plainPagePanel, at: 0, effectiveRange: nil) as? PagePanelSlice, let label = slice.label {
             let font = NSFont.systemFont(ofSize: page.codeHeaderSize)
             let string = NSAttributedString(string: label, attributes: [.font: font, .foregroundColor: page.textSecondary])
-            let origin = NSPoint(x: point.x + page.codePadSides, y: point.y + page.codePadTop)
+            let origin = NSPoint(x: point.x + (panelLeft ?? 0) + page.codePadSides, y: point.y + page.codePadTop)
             string.draw(at: origin)
             let size = string.size()
             Self.chevronImage.draw(in: NSRect(x: origin.x + size.width + 4, y: origin.y + (size.height - page.codeHeaderSize) / 2,

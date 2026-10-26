@@ -144,7 +144,8 @@ extension EditorTextView {
         let page = Tokens.page
         slashMenu.fenceLineStart = fenceLineStart
         let first = rect(forCharacterRange: NSRange(location: fenceLineStart, length: 0))
-        let label = NSRect(x: columnLeft + page.codePadSides, y: first.minY + page.codePadTop, width: 1, height: 18)
+        let label = NSRect(x: columnLeft + codePanelLeft(fenceLineStart: fenceLineStart) + page.codePadSides, y: first.minY + page.codePadTop,
+                           width: 1, height: 18)
         let count = min(LanguageListView.items.count, page.slashMaxRows)
         let size = NSSize(width: page.languageListWidth, height: LanguageListView.chrome + CGFloat(count) * page.menuRow)
         let view = LanguageListView(current: fenceLanguage().id, onPick: { [weak self] id in self?.pickLanguage(id) },

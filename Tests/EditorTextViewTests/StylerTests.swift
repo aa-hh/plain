@@ -438,4 +438,32 @@ final class StylerTests: XCTestCase {
         editor.setSelectedRange(NSRange(location: 2, length: 0))
         XCTAssertEqual(editor.styler.pageSelections, [NSRange(location: 2, length: 0)])
     }
+
+    // Turns red if a code block's language label or its click area sits at the column edge instead of inside a list
+    // item's indented panel.
+    func testCodeLabelInListItemSitsInsideIndentedPanel() async {
+        let editor = await page("- item\n\n  ```swift\n  let x = 1\n  ```")
+        XCTAssertEqual((editor.attribute(.plainPagePanel, at: 8) as? PagePanelSlice)?.label, "Swift")
+        let left = (editor.attribute(.paragraphStyle, at: 19) as? NSParagraphStyle)!.headIndent - Tokens.page.codePadSides
+        XCTAssertGreaterThan(left, 0)
+        let first = editor.rect(forCharacterRange: NSRange(location: 8, length: 0))
+        let y = first.minY + Tokens.page.codePadTop + 9
+        func click(_ x: CGFloat, missesLabel: Bool) {
+            let point = windowPoint(x: x, y: y, in: editor)
+            // A click that misses the label runs the text view's own click loop, which waits for this mouse-up; a label
+            // click reads no events, so a mouse-up posted for it would stay queued and reach a later test's click.
+            if missesLabel {
+                editor.window?.postEvent(NSEvent.mouseEvent(with: .leftMouseUp, location: point, modifierFlags: [], timestamp: 0,
+                                                            windowNumber: editor.window?.windowNumber ?? 0, context: nil, eventNumber: 0,
+                                                            clickCount: 1, pressure: 1)!, atStart: false)
+            }
+            editor.mouseDown(with: NSEvent.mouseEvent(with: .leftMouseDown, location: point, modifierFlags: [], timestamp: 0,
+                                                      windowNumber: editor.window?.windowNumber ?? 0, context: nil, eventNumber: 0,
+                                                      clickCount: 1, pressure: 1)!)
+        }
+        click(editor.columnLeft + Tokens.page.codePadSides + 2, missesLabel: true)
+        XCTAssertNil(editor.slashMenu.languageHost)
+        click(editor.columnLeft + left + Tokens.page.codePadSides + 2, missesLabel: false)
+        XCTAssertNotNil(editor.slashMenu.languageHost)
+    }
 }

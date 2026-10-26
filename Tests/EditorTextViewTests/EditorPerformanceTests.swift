@@ -171,6 +171,31 @@ final class EditorPerformanceTests: XCTestCase {
         #endif
     }
 
+    // Turns red if Shift+Right with most of the 1 MB page selected lists every hidden range in the selection.
+    func testShiftArrowOnLargeSelection() async throws {
+        #if DEBUG
+        throw XCTSkip("Performance runs in release only")
+        #else
+        let text = Self.fixture
+        let markdown = MarkdownDocument(text: text)
+        let editor = EditorTextView(document: Document(text: text), markdown: markdown)
+        host(editor)
+        await editor.settle()
+        editor.setSelectedRange(NSRange(location: 0, length: editor.nsText.length - 200))
+        var times: [Double] = []
+        for _ in 0..<200 {
+            let start = ContinuousClock.now
+            editor.moveRightAndModifySelection(nil)
+            editor.textLayoutManager?.textViewportLayoutController.layoutViewport()
+            times.append(Self.milliseconds(ContinuousClock.now - start))
+        }
+        let p95 = Self.percentile95(times)
+        print("PERF editor-shift-arrow-selection-p95-ms \(String(format: "%.3f", p95))")
+        await Self.drain(editor)
+        XCTAssertLessThanOrEqual(p95, 8)
+        #endif
+    }
+
     // Turns red if Select All then Copy on the 1 MB page takes over 50 ms, for example when the separator pass in
     // `HiddenRanges.addSeparators` checks each blank line against every hidden range again.
     func testSelectAllCopyPage() async throws {
@@ -211,6 +236,40 @@ final class EditorPerformanceTests: XCTestCase {
         editor.closeFind()
         await Self.drain(editor)
         XCTAssertLessThanOrEqual(ms, 50)
+        #endif
+    }
+
+    // Turns red if handling one snapshot with Find open on the 1 MB page takes over 50 ms p95, for example when the
+    // searched text's hidden-range list is built twice.
+    func testKeystrokeWithFindOpen() async throws {
+        #if DEBUG
+        throw XCTSkip("Performance runs in release only")
+        #else
+        let text = Self.fixture
+        let markdown = MarkdownDocument(text: text)
+        let editor = EditorTextView(document: Document(text: text), markdown: markdown)
+        host(editor)
+        await editor.settle()
+        editor.openFind()
+        editor.findQueryChanged("xyzzy")
+        let line = (text as NSString).lineRange(for: NSRange(location: (text as NSString).length / 2, length: 0))
+        editor.setSelectedRange(NSRange(location: line.location, length: 0))
+        editor.scrollRangeToVisible(NSRange(location: line.location, length: 0))
+        editor.textLayoutManager?.textViewportLayoutController.layoutViewport()
+        await editor.settle()
+        var times: [Double] = []
+        for _ in 0..<50 {
+            editor.insertText("x", replacementRange: NSRange(location: NSNotFound, length: 0))
+            let snap = await markdown.snapshot(atLeast: editor.appliedVersion)
+            let start = ContinuousClock.now
+            editor.received(snap, initial: false)
+            times.append(Self.milliseconds(ContinuousClock.now - start))
+        }
+        let p95 = Self.percentile95(times)
+        print("PERF editor-keystroke-find-open-p95-ms \(String(format: "%.3f", p95))")
+        editor.closeFind()
+        await Self.drain(editor)
+        XCTAssertLessThanOrEqual(p95, 50)
         #endif
     }
 

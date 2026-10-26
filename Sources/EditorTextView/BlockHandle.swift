@@ -344,7 +344,10 @@ extension EditorTextView {
 
     func blockMenuDelete() { blockMenuEdit { PageBlocks.delete($0, text: $1) } }
 
-    func blockMenuTurnInto(_ kind: PageBlockKind) { blockMenuEdit { PageBlocks.turnInto($0, to: kind, text: $1) } }
+    func blockMenuTurnInto(_ kind: PageBlockKind) {
+        guard let snapshot else { return }
+        blockMenuEdit { PageBlocks.turnInto($0, to: kind, text: $1, snapshot: snapshot) }
+    }
 
     /// Puts the raw Markdown lines of the hovered block (with nested items) on the pasteboard.
     func blockMenuCopyMarkdown() {

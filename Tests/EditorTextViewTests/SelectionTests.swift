@@ -218,6 +218,14 @@ final class SelectionTests: XCTestCase {
         XCTAssertEqual(after(heading, from: 8) { $0.moveUp(nil) }.location, 0)
     }
 
+    // Turns red if a caret snapped off a divider stops on the next divider's hidden line because the hidden ranges
+    // were listed only around the first point.
+    func testPageClickBetweenDividersSnapsPastBoth() async {
+        let editor = await page("a\n\n---\n\n---\n\nb")
+        editor.setSelectedRange(NSRange(location: 3, length: 0))
+        XCTAssertEqual(editor.selectedRange(), NSRange(location: 13, length: 0))
+    }
+
     // Addendum 2. Turns red if Down stops skipping a closing fence or a setext underline below the caret, or stops
     // keeping the caret's x on the line it lands on (code lines start 32 pt in, past the end of `next`).
     func testPageDownSkipsClosingFenceAndUnderline() async {

@@ -234,7 +234,8 @@ final class MarkdownStyler {
             setFont(codeFont, range)
             set(.foregroundColor, Tokens.colorSecondary, range)
             band(bodyRange(block))
-            fade(block.markerRanges)
+            // Markers after the two fence lines (key colons, list brackets) are for the page view.
+            fade(Array(block.markerRanges.prefix(2)))
         case .htmlBlock:
             setFont(codeFont, range)
             set(.foregroundColor, Tokens.colorSecondary, range)
@@ -795,28 +796,18 @@ extension MarkdownStyler {
             }
             storage.addAttribute(.font, value: small, range: line)
             set(.paragraphStyle, pageParagraphStyle(lineHeight: rowHeight), full)
-            let string = text.substring(with: line) as NSString
-            let colon = string.range(of: ":")
-            guard colon.location != NSNotFound, colon.location > 0, !" -\t".contains(string.substring(to: 1)) else {
+            let markers = block.markerRanges.filter { NSLocationInRange($0.location, line) }
+            guard let colon = markers.first else {
                 set(.foregroundColor, page.textSecondary, line)
                 continue
             }
-            let key = NSRange(location: line.location, length: colon.location)
-            var valueStart = colon.location + 1
-            while valueStart < string.length, string.character(at: valueStart) == 32 { valueStart += 1 }
-            let hidden = NSRange(location: line.location + colon.location, length: valueStart - colon.location)
+            let key = NSRange(location: line.location, length: colon.location - line.location)
             set(.foregroundColor, page.textSecondary, key)
-            storage.addAttributes([.font: Self.hiddenFont, .foregroundColor: NSColor.clear], range: hidden)
-            let keyWidth = storage.attributedSubstring(from: key).size().width
-            storage.addAttribute(.kern, value: page.frontKeyWidth - keyWidth, range: NSRange(location: hidden.location, length: 1))
-            let value = string.substring(from: valueStart).trimmingCharacters(in: .whitespaces)
-            if value.hasPrefix("["), value.hasSuffix("]") {
-                let open = line.location + valueStart + (string.substring(from: valueStart) as NSString).range(of: "[").location
-                let close = line.location + (string as NSString).range(of: "]", options: .backwards).location
-                for bracket in [open, close] {
-                    storage.addAttributes([.font: Self.hiddenFont, .foregroundColor: NSColor.clear], range: NSRange(location: bracket, length: 1))
-                }
+            for marker in markers {
+                storage.addAttributes([.font: Self.hiddenFont, .foregroundColor: NSColor.clear], range: marker)
             }
+            let keyWidth = storage.attributedSubstring(from: key).size().width
+            storage.addAttribute(.kern, value: page.frontKeyWidth - keyWidth, range: NSRange(location: colon.location, length: 1))
         }
     }
 
