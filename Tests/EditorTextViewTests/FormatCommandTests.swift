@@ -166,11 +166,7 @@ final class FormatCommandTests: XCTestCase {
 
     // MARK: Page
 
-    private func page(_ text: String) async -> EditorTextView {
-        let editor = await EditorTextViewTests.makeEditor(text, configuration: EditorConfiguration())
-        editor.pasteboard = board
-        return editor
-    }
+    private func page(_ text: String) async -> EditorTextView { await makeEditor(text, configuration: EditorConfiguration()) }
 
     private func plain(_ text: String) async -> String {
         let editor = await page(text)
