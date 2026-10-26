@@ -26,7 +26,7 @@ struct PostPass {
     /// `caretOffset` is where the caret sits, when the text came from an edit rather than a file on disk.
     static func parse(_ source: Source, lines: Range<Int>, kinds: [LineScanner.LineKind], extraDefinitions: [String],
                       outsideFootnoteLabels: Set<String>, caretOffset: Int?, nextID: inout Int)
-        -> (blocks: [Block], provisional: (id: BlockID, kind: BlockKind)?) {
+        -> (blocks: [Block], provisional: ProvisionalBlock?) {
         let pre = PrePass.run(source, lines: lines, kinds: kinds)
         var text = pre.text
         if !extraDefinitions.isEmpty { text += "\n\n" + extraDefinitions.joined(separator: "\n") }
@@ -49,12 +49,12 @@ struct PostPass {
         nextID = pass.nextID
 
         // The caret's block keeps its settled kind; the snapshot carries the kind to show for it.
-        var provisional: (id: BlockID, kind: BlockKind)?
+        var provisional: ProvisionalBlock?
         if let caretOffset {
             let caretLine = source.line(containing: caretOffset)
             if let index = blocks.firstIndex(where: { $0.lineRange.contains(caretLine) }),
-               case .paragraph = blocks[index].kind, let kind = pass.ambiguousKind(blocks[index]) {
-                provisional = (blocks[index].id, kind)
+               case .paragraph = blocks[index].kind, let pipes = pass.provisionalTablePipes(blocks[index]) {
+                provisional = ProvisionalBlock(id: blocks[index].id, kind: .table, pipeOffsets: pipes)
             }
         }
         return (blocks, provisional)
@@ -62,28 +62,24 @@ struct PostPass {
 
     // MARK: Ambiguous kinds
 
-    /// The kind to show for the caret's top-level paragraph while that kind is still ambiguous (issue 1).
+    /// The pipe offsets for the caret's top-level paragraph, when a run of `|` lines should be held as one table
+    /// while that kind is still ambiguous (issue 1). Nil when it should not.
     /// A setext underline and a bare list marker settle the block the moment their first character lands, and a
     /// fence, math block or blockquote opens on its own first line, so a table is the only kind left: a line holding
     /// a `|` is a table once a delimiter row follows it, and until then a run of `|` lines is held as one, the way
     /// Claude's scanner opens a table on any line holding a `|` and closes it at a blank line.
-    func ambiguousKind(_ paragraph: Block) -> BlockKind? {
+    func provisionalTablePipes(_ paragraph: Block) -> [Int]? {
         let lines = paragraph.lineRange
         guard !lines.isEmpty else { return nil }
         // A run of table lines starts after a blank line, or at the top of the document.
         if lines.lowerBound > 0 && !source.isBlank(lines.lowerBound - 1) { return nil }
+        var pipes: [Int] = []
         for line in lines {
-            var index = source.lineStart(line)
-            let end = source.lineEnd(line)
-            var pipe = false
-            while index < end {
-                if units[index] == 92 { index += 2; continue }
-                if units[index] == 124 { pipe = true }
-                index += 1
-            }
-            guard pipe else { return nil }
+            let linePipes = source.pipeOffsets(from: source.lineStart(line), to: source.lineEnd(line))
+            guard !linePipes.isEmpty else { return nil }
+            pipes.append(contentsOf: linePipes)
         }
-        return .table
+        return pipes
     }
 
     // MARK: Positions
@@ -213,12 +209,8 @@ struct PostPass {
                     markers.append(trimmedLineRange(line))
                     continue
                 }
-                var index = source.lineStart(line)
-                let end = source.lineEnd(line)
-                while index < end {
-                    if units[index] == 92 { index += 2; continue }
-                    if units[index] == 124 { markers.append(NSRange(location: index, length: 1)) }
-                    index += 1
+                for pipe in source.pipeOffsets(from: source.lineStart(line), to: source.lineEnd(line)) {
+                    markers.append(NSRange(location: pipe, length: 1))
                 }
             }
             return make(.table, range, lines, markers: markers, inlines: inlines)

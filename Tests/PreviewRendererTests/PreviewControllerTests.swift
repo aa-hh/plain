@@ -88,4 +88,27 @@ final class PreviewControllerTests: XCTestCase {
         XCTAssertTrue(page.updates.first?.patches.first?.html.contains("<table") == true)
         XCTAssertNil(page.updates.first?.patches.first?.before)
     }
+
+    // Turns red if a block that stops being provisional keeps its stale `<table>` on screen. The block keeps its id
+    // and its settled kind when the caret leaves it, so it has to be named as changed to be patched back (issue 1).
+    func testCaretLeavingAProvisionalBlockRepatchesIt() async {
+        let (controller, page, document) = await makeController("one\n\n| a | b |\n\nthree")
+        let first = controller.snapshot!.blocks[1]
+        document.apply(TextEdit(range: NSRange(location: first.range.location + 1, length: 0), replacement: "x"))
+        await waitForMessages(page)
+        withExtendedLifetime(controller) {}
+        let table = controller.snapshot!.blocks[1]
+        XCTAssertTrue(page.updates.last?.patches.contains { $0.html.contains("<table") } == true, "\(page.messages)")
+        page.messages.removeAll()
+
+        // Typing in the first block moves the caret there, and the table block is a paragraph again.
+        document.apply(TextEdit(range: NSRange(location: 0, length: 0), replacement: "y"))
+        await waitForMessages(page)
+        withExtendedLifetime(controller) {}
+        guard let patch = page.updates.last?.patches.first(where: { $0.id == String(table.id.rawValue) }) else {
+            return XCTFail("the block that stopped being provisional was never patched: \(page.messages)")
+        }
+        XCTAssertTrue(patch.html.contains("<p data-block=\"\(table.id.rawValue)\""), patch.html)
+        XCTAssertFalse(patch.html.contains("<table"), patch.html)
+    }
 }

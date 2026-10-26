@@ -107,7 +107,8 @@ private final class PrintCompletion: NSObject {
 
 extension PreviewController {
     /// The HTML file for File > Export to HTML: paths as written, the theme with `:host` as `:root` and variables
-    /// replaced by the preview's computed values, and the `.content` padding the preview has now.
+    /// replaced by the preview's computed values, and the `.content` padding the preview has now. Every block is
+    /// drawn in the kind it settled with, so a half-typed table exports as a paragraph.
     public func exportHTML(snapshot: Snapshot, themeCSS: String, title: String) async -> String {
         let body = HTMLRenderer(math: renderer.math).html(for: snapshot)
         let names = Set(Export.declarations(in: themeCSS).keys).sorted()

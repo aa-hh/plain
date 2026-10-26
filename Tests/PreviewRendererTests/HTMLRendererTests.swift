@@ -12,6 +12,14 @@ func renderHTML(_ markdown: String, math: any MathRenderer = FakeMathRenderer())
     return HTMLRenderer(math: math).html(for: snapshot)
 }
 
+/// The preview's renderer, the one consumer that draws the caret's block in the kind its snapshot holds
+/// provisionally. Export and copy leave that off, so they write the settled kinds.
+func previewRenderer(math: any MathRenderer = FakeMathRenderer()) -> HTMLRenderer {
+    var renderer = HTMLRenderer(math: math)
+    renderer.usesProvisionalKinds = true
+    return renderer
+}
+
 final class HTMLRendererTests: XCTestCase {
     // Turns red if the renderer starts converting quotes or `--` (spec 459: typographer off) or escapes raw HTML.
     func testStraightQuotesAndRawHTML() async {
@@ -34,14 +42,24 @@ final class HTMLRendererTests: XCTestCase {
         XCTAssertTrue(html.contains("<s>gone</s>"), html)
     }
 
+    // Turns red if a settled table's cells start being clipped to the text between their pipes. Only a provisional
+    // table clips; a settled one renders exactly as it did before the provisional path existed. The second row is
+    // indented by one space, which is where its cell ranges keep a leading space.
+    func testSettledTableKeepsItsCellBytes() async {
+        let html = await renderHTML("| a | b |\n|---|---|\n|  x  |  y  |\n |  p  |  q  |")
+        XCTAssertEqual(html, """
+        <table data-block="0" data-line="0">\n<thead>\n<tr>\n<th>a</th>\n<th>b</th>\n</tr>\n</thead>\n<tbody>\n<tr>\n<td>x</td>\n<td>y</td>\n</tr>\n<tr>\n<td> </td>\n<td> </td>\n</tr>\n</tbody>\n</table>\n
+        """, html)
+    }
+
     // Turns red if a table row still under the caret stops rendering as a table, or its rows lose their cells.
     func testProvisionalTableRendersRows() async {
         let document = MarkdownDocument(text: "")
         let version = document.apply(TextEdit(range: NSRange(location: 0, length: 0),
                                              replacement: "| a | b |\n| c | d |"))
         let snapshot = await document.snapshot(atLeast: version)
-        XCTAssertEqual(snapshot.provisionalKinds.count, 1)
-        let html = HTMLRenderer(math: FakeMathRenderer()).html(for: snapshot)
+        XCTAssertEqual(snapshot.provisional?.kind, .table)
+        let html = previewRenderer().html(for: snapshot)
         XCTAssertTrue(html.contains("<th>a</th>"), html)
         XCTAssertTrue(html.contains("<th>b</th>"), html)
         XCTAssertTrue(html.contains("<td>c</td>"), html)
@@ -53,11 +71,24 @@ final class HTMLRendererTests: XCTestCase {
         let document = MarkdownDocument(text: "")
         let version = document.apply(TextEdit(range: NSRange(location: 0, length: 0), replacement: "| a | b |"))
         let snapshot = await document.snapshot(atLeast: version)
-        XCTAssertEqual(snapshot.provisionalKinds.count, 1)
-        let html = HTMLRenderer(math: FakeMathRenderer()).html(for: snapshot)
+        XCTAssertEqual(snapshot.provisional?.kind, .table)
+        let html = previewRenderer().html(for: snapshot)
         XCTAssertTrue(html.contains("<th>a</th>"), html)
         XCTAssertTrue(html.contains("<th>b</th>"), html)
         XCTAssertFalse(html.contains("<tbody>"), html)
+    }
+
+    // Turns red if the renderer counts an escaped `|` as a cell edge. The escape rule is the parser's, reached
+    // through the snapshot's pipe offsets rather than a second scan in the renderer (issue 1).
+    func testProvisionalTableSplitsOnUnescapedPipes() async {
+        let document = MarkdownDocument(text: "")
+        let version = document.apply(TextEdit(range: NSRange(location: 0, length: 0), replacement: "| a \\| b |"))
+        let snapshot = await document.snapshot(atLeast: version)
+        XCTAssertEqual(snapshot.provisional?.kind, .table)
+        let html = previewRenderer().html(for: snapshot)
+        XCTAssertEqual(html, """
+        <table data-block="0" data-line="0">\n<thead>\n<tr>\n<th>a | b</th>\n</tr>\n</thead>\n</table>\n
+        """, html)
     }
 
     // Turns red if bare URLs without a scheme get linked or emails stop linking (spec 462).

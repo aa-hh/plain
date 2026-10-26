@@ -34,7 +34,7 @@ public actor MarkdownDocument {
                            headings: Self.headings(in: parsed.blocks, slugs: &slugs),
                            referenceDefinitions: Self.definitions(in: parsed.blocks),
                            changedBlockIDs: Set(parsed.blocks.map(\.id)), removedBlockIDs: [],
-                           changedRange: NSRange(location: 0, length: source.units.count), provisionalKinds: [:])
+                           changedRange: NSRange(location: 0, length: source.units.count), provisional: nil)
         self.slugs = slugs
     }
 
@@ -152,7 +152,7 @@ public actor MarkdownDocument {
 
         var full = false
         var newBlocks: [Block] = []
-        var provisional: [BlockID: BlockKind] = [:]
+        var provisional: ProvisionalBlock?
         var attempts = 0
         while true {
             windowEnd = min(windowEnd, oldLineCount)
@@ -172,7 +172,7 @@ public actor MarkdownDocument {
                                         outsideFootnoteLabels: footnoteLabels, caretOffset: caret, nextID: &nextID)
             newBlocks = parsed.blocks
             // A widened window parses again, so only the last parse's provisional block counts.
-            provisional = parsed.provisional.map { [$0.id: $0.kind] } ?? [:]
+            provisional = parsed.provisional
             self.nextID = nextID
             let covered = old.filter { $0.lineRange.lowerBound >= windowStart && $0.lineRange.lowerBound < windowEnd }
             if windowEnd < oldLineCount && !Self.endsStable(newBlocks.last, covered.last, start: start, oldEnd: oldEnd, delta: delta, lineDelta: lineDelta) {
@@ -196,7 +196,7 @@ public actor MarkdownDocument {
             let parsed = PostPass.parse(source, lines: 0..<source.lineCount, kinds: kinds, extraDefinitions: [],
                                         outsideFootnoteLabels: [], caretOffset: caret, nextID: &nextID)
             newBlocks = parsed.blocks
-            provisional = parsed.provisional.map { [$0.id: $0.kind] } ?? [:]
+            provisional = parsed.provisional
             self.nextID = nextID
             coveredRange = 0..<old.count
         } else {
@@ -240,12 +240,14 @@ public actor MarkdownDocument {
         if full || touchedKinds.contains(where: { if case .footnoteDefinition = $0 { true } else { false } }) {
             footnoteLabels = Self.footnoteLabels(in: merged)
         }
-        // The caret's block is rendered provisionally, so the preview has to patch it too.
-        changed.formUnion(provisional.keys)
+        // The caret's block is drawn provisionally, so the preview has to patch it too. A block that stops being
+        // provisional keeps its id and its settled kind, so it would otherwise never be patched back.
+        if let provisional { changed.insert(provisional.id) }
+        if let held = current.provisional, held.id != provisional?.id { changed.insert(held.id) }
         return Snapshot(version: version, text: Self.string(source.units), blocks: merged,
                         headings: Self.headings(in: merged, slugs: &slugs), referenceDefinitions: definitions,
                         changedBlockIDs: changed, removedBlockIDs: removed, changedRange: changedRange,
-                        provisionalKinds: provisional)
+                        provisional: provisional)
     }
 
     /// Definitions from outside the window whose label could be referenced inside it, as `[label]: destination` lines.

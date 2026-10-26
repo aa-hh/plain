@@ -327,10 +327,11 @@ be unnecessary: a setext underline and a bare list marker settle the block on th
 character, and a fence, math block or blockquote opens on its own first line, so the table
 was the only kind that needed holding.
 
-One deviation from the measurement is worth knowing about. Claude opens a table on any line
-holding a `|`, which is right for text arriving from a model but wrong for text arriving
-from a keyboard: a pipe inside an ordinary sentence is held as a table for as long as the
-caret stays in that paragraph. The behaviour is pinned by a test so it reads as a decision
-rather than an accident. Tightening it to a pipe at the start or end of the line, or to a
-second pipe on the line, would keep the provisional table for the common table styles
-(`| a | b |`, `a | b |`, `a | b | c`) while releasing single-pipe prose.
+One deviation from the measurement. Claude opens a table on any line holding a `|`, which
+is right for text arriving from a model but wrong for text arriving from a keyboard: Plain
+holds a pipe inside an ordinary sentence as a table for as long as the caret stays in that
+paragraph, and only when the run of `|` lines starts after a blank line or at the top of the
+document. The behaviour is pinned by a test so it reads as a decision rather than an accident.
+Tightening it to a pipe at the start or end of the line, or to a second pipe on the line, would
+keep the provisional table for the common table styles (`| a | b |`, `a | b |`, `a | b | c`)
+while releasing single-pipe prose.

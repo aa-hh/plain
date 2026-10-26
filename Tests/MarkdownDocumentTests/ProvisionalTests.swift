@@ -48,8 +48,8 @@ final class ProvisionalTests: XCTestCase {
     /// The kind the snapshot renders for the block holding `offset`, and whether that kind is provisional.
     private func rendered(_ snapshot: Snapshot, at offset: Int) -> (kind: BlockKind, provisional: Bool)? {
         guard let block = snapshot.block(at: offset) else { return nil }
-        guard let kind = snapshot.provisionalKinds[block.id] else { return (block.kind, false) }
-        return (kind, true)
+        guard let provisional = snapshot.provisional, provisional.id == block.id else { return (block.kind, false) }
+        return (provisional.kind, true)
     }
 
     // Turns red if a table row under the caret stops rendering as a table before its delimiter row exists.
@@ -70,7 +70,7 @@ final class ProvisionalTests: XCTestCase {
         let snapshots = await type("\n| c | d |", at: 9, "typing a second row")
         // The caret is between blocks just after the return, so nothing is provisional yet.
         XCTAssertEqual(rendered(snapshots[0], at: 10)?.kind, nil)
-        XCTAssertTrue(snapshots[0].provisionalKinds.isEmpty)
+        XCTAssertNil(snapshots[0].provisional)
         // From the first pipe of the new row on, both rows are one provisional table.
         for (index, snapshot) in snapshots.dropFirst().enumerated() {
             let caret = 10 + index + 1
@@ -89,7 +89,7 @@ final class ProvisionalTests: XCTestCase {
             let block = snapshot.block(at: caret)
             if block?.kind == .table {
                 if settled == nil { settled = index }
-                XCTAssertTrue(snapshot.provisionalKinds.isEmpty, "step \(index) kept a provisional kind after settling")
+                XCTAssertNil(snapshot.provisional, "step \(index) kept a provisional kind after settling")
             } else {
                 let held = block.map { "\($0.kind)" } ?? "no block"
                 XCTAssertNil(settled, "step \(index) went back to \(held)")
@@ -104,7 +104,7 @@ final class ProvisionalTests: XCTestCase {
         open("Title")
         let snapshots = await type("\n===", at: 5, "typing the underline")
         // The paragraph is never held provisionally: the first `=` settles it as a heading at once.
-        for snapshot in snapshots { XCTAssertTrue(snapshot.provisionalKinds.isEmpty) }
+        for snapshot in snapshots { XCTAssertNil(snapshot.provisional) }
         // The caret sits between blocks just after the return.
         XCTAssertNil(snapshots[0].block(at: 6))
         for snapshot in snapshots.dropFirst() {
@@ -122,7 +122,7 @@ final class ProvisionalTests: XCTestCase {
             XCTAssertEqual(rendered(last, at: marker.utf16.count)?.provisional, false, marker)
             XCTAssertEqual(last.block(at: marker.utf16.count)?.kind,
                            marker.first == "1" ? .orderedList(start: 1) : .bulletList, marker)
-            XCTAssertTrue(last.provisionalKinds.isEmpty, marker)
+            XCTAssertNil(last.provisional, marker)
         }
     }
 
@@ -142,7 +142,7 @@ final class ProvisionalTests: XCTestCase {
         let last = await edit(NSRange(location: model.length - 1, length: 1), replacement: "", "deleting the last pipe")
         let kinds: [BlockKind] = last.blocks.map(\.kind)
         XCTAssertEqual(kinds, [.paragraph])
-        XCTAssertTrue(last.provisionalKinds.isEmpty)
+        XCTAssertNil(last.provisional)
     }
 
     // Turns red if deleting an underline or a list marker stops giving the block its settled kind back.
@@ -154,7 +154,7 @@ final class ProvisionalTests: XCTestCase {
             let snapshot = await edit(NSRange(location: model.length - 1, length: 1), replacement: "", "deleting a character")
             let kinds: [BlockKind] = snapshot.blocks.map(\.kind)
             XCTAssertEqual(kinds, expected)
-            XCTAssertTrue(snapshot.provisionalKinds.isEmpty)
+            XCTAssertNil(snapshot.provisional)
         }
 
         open("para")
@@ -164,7 +164,7 @@ final class ProvisionalTests: XCTestCase {
             let snapshot = await edit(NSRange(location: model.length - 1, length: 1), replacement: "", "deleting a character")
             let kinds: [BlockKind] = snapshot.blocks.map(\.kind)
             XCTAssertEqual(kinds, expected)
-            XCTAssertTrue(snapshot.provisionalKinds.isEmpty)
+            XCTAssertNil(snapshot.provisional)
         }
     }
 
@@ -178,7 +178,7 @@ final class ProvisionalTests: XCTestCase {
         let snapshot = await edit(NSRange(location: 0, length: 0), replacement: "x", "typing in the first block")
         let kinds: [BlockKind] = snapshot.blocks.map(\.kind)
         XCTAssertEqual(kinds, [.paragraph, .paragraph])
-        XCTAssertTrue(snapshot.provisionalKinds.isEmpty)
+        XCTAssertNil(snapshot.provisional)
     }
 
     // Turns red if a fence inside a block of pipes stops being code, or the row above it stays provisional.
@@ -191,7 +191,7 @@ final class ProvisionalTests: XCTestCase {
         let last = snapshots.last!
         let kinds: [BlockKind] = last.blocks.map(\.kind)
         XCTAssertEqual(kinds, [.paragraph, .fencedCode(language: nil)])
-        for snapshot in snapshots[fence...] { XCTAssertTrue(snapshot.provisionalKinds.isEmpty) }
+        for snapshot in snapshots[fence...] { XCTAssertNil(snapshot.provisional) }
     }
 
     // Turns red if a line holding a `|` stops being held as a table while the caret is in it, which is the rule
@@ -205,6 +205,20 @@ final class ProvisionalTests: XCTestCase {
         XCTAssertEqual(rendered(snapshot, at: model.length)?.kind, .table)
     }
 
+    // Turns red if the snapshot stops carrying the pipe offsets the renderer splits cells on, or counts an
+    // escaped `|` as one (issue 1).
+    func testProvisionalBlockCarriesUnescapedPipeOffsets() async {
+        open("| a | b |")
+        await type("\n| c \\| d |", at: 9, "typing a row holding an escaped pipe")
+        let snapshot = await document.currentSnapshot()
+        let block = snapshot.block(at: model.length)!
+        XCTAssertEqual(snapshot.provisional?.id, block.id)
+        // Offsets of `|` in `| a | b |\n| c \| d |`, skipping the `|` the `\` escapes.
+        let text = Array(snapshot.text.utf16)
+        XCTAssertEqual(snapshot.provisional?.pipeOffsets, [0, 4, 8, 10, 19])
+        for offset in snapshot.provisional!.pipeOffsets { XCTAssertEqual(text[offset], 124) }
+    }
+
     // Turns red if a pipe inside a quote or a list item starts being held as a table: only a top-level paragraph
     // whose kind is still ambiguous is ever provisional.
     func testPipeInsideAQuoteOrListItemIsNotProvisional() async {
@@ -213,14 +227,14 @@ final class ProvisionalTests: XCTestCase {
         let quoted = await document.currentSnapshot()
         let quoteKinds: [BlockKind] = quoted.blocks.map(\.kind)
         XCTAssertEqual(quoteKinds, [.blockQuote])
-        XCTAssertTrue(quoted.provisionalKinds.isEmpty)
+        XCTAssertNil(quoted.provisional)
 
         open("- item")
         await type(" | more", at: 5, "typing a pipe inside a list item")
         let listed = await document.currentSnapshot()
         let listKinds: [BlockKind] = listed.blocks.map(\.kind)
         XCTAssertEqual(listKinds, [.bulletList])
-        XCTAssertTrue(listed.provisionalKinds.isEmpty)
+        XCTAssertNil(listed.provisional)
     }
 
     // Turns red if front matter above an ambiguous block stops being front matter, or becomes provisional itself.
@@ -230,8 +244,8 @@ final class ProvisionalTests: XCTestCase {
         let snapshot = await document.currentSnapshot()
         let kinds: [BlockKind] = snapshot.blocks.map(\.kind)
         XCTAssertEqual(kinds, [.frontMatter, .paragraph, .paragraph])
-        XCTAssertEqual(snapshot.provisionalKinds.count, 1)
-        XCTAssertEqual(snapshot.provisionalKinds[snapshot.blocks[2].id], BlockKind.table)
+        XCTAssertEqual(snapshot.provisional?.id, snapshot.blocks[2].id)
+        XCTAssertEqual(snapshot.provisional?.kind, BlockKind.table)
     }
 
     // Turns red if a document opened from disk with a half-typed table shows anything but a fresh parse.
@@ -239,7 +253,7 @@ final class ProvisionalTests: XCTestCase {
         let snapshot = await MarkdownDocument(text: "| a | b |").currentSnapshot()
         let kinds: [BlockKind] = snapshot.blocks.map(\.kind)
         XCTAssertEqual(kinds, [.paragraph])
-        XCTAssertTrue(snapshot.provisionalKinds.isEmpty)
+        XCTAssertNil(snapshot.provisional)
     }
 
     // Turns red if editing one block changes the kind or the id of a block that had already settled.
@@ -255,6 +269,6 @@ final class ProvisionalTests: XCTestCase {
         // Only the paragraph that was typed in changed: the table kept its id, kind and range.
         XCTAssertEqual(snapshot.changedBlockIDs, Set([snapshot.blocks[1].id]))
         XCTAssertEqual(snapshot.removedBlockIDs, Set([before.blocks[1].id]))
-        XCTAssertTrue(snapshot.provisionalKinds.isEmpty)
+        XCTAssertNil(snapshot.provisional)
     }
 }

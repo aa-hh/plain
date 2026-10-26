@@ -41,4 +41,20 @@ final class ExportTests: XCTestCase {
         let without = await export("No math here")
         XCTAssertFalse(without.contains("KaTeX_Main"))
     }
+
+    // Turns red if a half-typed table exports as a table. Export writes the document's settled blocks, so the
+    // paragraph the caret is still typing in stays a paragraph (issue 1).
+    func testHalfTypedTableExportsAsAParagraph() async {
+        let page = RecordingPage()
+        page.computedVariables = ["--link": "rgb(1, 2, 3)"]
+        let controller = PreviewController(page: page, math: FakeMathRenderer())
+        let document = MarkdownDocument(text: "")
+        let version = document.apply(TextEdit(range: NSRange(location: 0, length: 0), replacement: "| a | b |"))
+        let snapshot = await document.snapshot(atLeast: version)
+        XCTAssertEqual(snapshot.provisional?.kind, .table)
+        let html = await controller.exportHTML(snapshot: snapshot, themeCSS: Themes.css(for: Tokens.previewDefault),
+                                               title: "Notes.md")
+        XCTAssertTrue(html.contains(">| a | b |</p>"), html)
+        XCTAssertFalse(html.contains("<table"), html)
+    }
 }

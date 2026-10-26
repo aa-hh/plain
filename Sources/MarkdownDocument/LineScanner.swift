@@ -111,6 +111,18 @@ struct Source {
         return end - start == target.count && units[start..<end].elementsEqual(target)
     }
 
+    /// Offsets of the `|` in `from..<to` that no `\` escapes. A `\` at the end of the range escapes nothing.
+    func pipeOffsets(from: Int, to: Int) -> [Int] {
+        var result: [Int] = []
+        var index = from
+        while index < to {
+            if units[index] == 92 { index += 2; continue }
+            if units[index] == 124 { result.append(index) }
+            index += 1
+        }
+        return result
+    }
+
     /// First offset in `from..<to` where the ASCII needle starts, comparing letters case-insensitively.
     func find(_ needle: [UInt16], from: Int, to: Int) -> Int? {
         guard !needle.isEmpty, to - from >= needle.count else { return nil }

@@ -46,6 +46,8 @@ public final class PreviewController {
         self.page = page ?? WebPreviewPage(themeURL: themeURL)
         self.themeURL = themeURL
         renderer = HTMLRenderer(math: math)
+        // The preview is the one consumer that draws a block provisionally; export reads the settled kinds.
+        renderer.usesProvisionalKinds = true
         self.page.onTask = { [weak self] index in self?.toggleTask(index) }
         self.page.onLink = { [weak self] href in self?.openLink(href) }
     }

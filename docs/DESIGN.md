@@ -83,6 +83,7 @@ State files: `app` (focused window), `commands` (3 most recent commands), `emoji
 - Spelling leaves language detection to the system setting and drops Caret's own word list and its English two-letter transposition list (spec line 321).
 - HTML export fixes two bugs in Caret's export: the body sits in `<section class="content">`, and a document with maths carries KaTeX's stylesheet with its woff2 fonts inlined as `data:` URLs.
 - Business features are left out: licences and purchases, analytics, the updater, error uploads, Caret's web links, and the Twitter and newsletter commands. The Help menu holds Open Welcome Folder and Third-Party Licences.
+- Provisional tables: a paragraph holding a `|` renders as a table only while the caret sits in it, and only when the run of `|` lines starts after a blank line or at the top of the document. Claude's scanner opens a table on any line holding a `|` and keeps it open until a blank line (`docs/claude-markdown-reference.md`).
 
 ## Speed
 
