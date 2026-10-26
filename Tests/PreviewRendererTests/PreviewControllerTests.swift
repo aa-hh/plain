@@ -6,7 +6,7 @@ import MarkdownDocument
 @MainActor
 final class RecordingPage: PreviewPage {
     var onTask: ((Int) -> Void)?
-    var onLink: ((String) -> Void)?
+    var onLink: ((String, Bool) -> Void)?
     var messages: [PreviewMessage] = []
     var computedVariables: [String: String] = [:]
     var padding: String? = "10px 20px"

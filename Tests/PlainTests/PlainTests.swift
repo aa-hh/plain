@@ -3,6 +3,7 @@ import GitStatus
 import MarkdownDocument
 import PlainCore
 import PlainDocument
+import PlainShell
 import SwiftUI
 import XCTest
 
@@ -69,7 +70,8 @@ final class PlainTests: XCTestCase {
         let store = StateStore(folder: folder.appendingPathComponent("state"))
         let a = folder.appendingPathComponent("A"), b = folder.appendingPathComponent("B")
         let first = TabMemory(files: ["/x/1.md", "/x/2.md"], current: 1, closed: ["/x/0.md"],
-                              recents: [RecentFile(path: "/x/2.md", lastUsed: Date(timeIntervalSince1970: 100))])
+                              recents: [RecentFile(path: "/x/2.md", lastUsed: Date(timeIntervalSince1970: 100))],
+                              history: [TabHistory(back: ["/x/0.md"]), TabHistory()])
         let second = TabMemory(files: ["/y/3.md"], current: 0)
         try await TabMemory.save(first, to: store, window: 2, folder: a)
         try await TabMemory.save(second, to: store, window: 2, folder: b)
@@ -79,6 +81,105 @@ final class PlainTests: XCTestCase {
         XCTAssertEqual(loadedFirst, first)
         XCTAssertEqual(loadedSecond, second)
         XCTAssertNil(otherWindow)
+    }
+
+    func testTabMemoryWithoutHistoryLoads() throws {
+        // Turns red if a tabs-w<N> file written before tabs had back and forward lists stops loading.
+        let json = #"{"files":["/x/1.md"],"current":0,"closed":[],"recents":[]}"#
+        let memory = try JSONDecoder().decode(TabMemory.self, from: Data(json.utf8))
+        XCTAssertEqual(memory.files, ["/x/1.md"])
+        XCTAssertEqual(memory.history, [])
+    }
+
+    func testPlacementRules() {
+        // Turns red if an in-place open stops following docs/navigation-spec.md's four rules, or asks whether the tab
+        // can be left before rules 1 and 2 have been tried.
+        let a = UUID(), b = UUID()
+        let tabs = [(id: a, path: "/f/a.md"), (id: b, path: "/f/b.md")]
+        var asked = false
+        XCTAssertEqual(Placement.decide(target: "/f/a.md", currentID: a, tabs: tabs) { asked = true; return true }, .stay)
+        XCTAssertEqual(Placement.decide(target: "/f/b.md", currentID: a, tabs: tabs) { asked = true; return true }, .switchTo(b))
+        XCTAssertFalse(asked)
+        XCTAssertEqual(Placement.decide(target: "/f/c.md", currentID: a, tabs: tabs) { false }, .newTab)
+        XCTAssertEqual(Placement.decide(target: "/f/c.md", currentID: nil, tabs: []) { true }, .newTab)
+        XCTAssertEqual(Placement.decide(target: "/f/c.md", currentID: a, tabs: tabs) { true }, .replace)
+
+        XCTAssertTrue(Placement.canLeave(isUntitled: false, isPreferences: false, isBackup: false, isEdited: false))
+        XCTAssertFalse(Placement.canLeave(isUntitled: true, isPreferences: false, isBackup: false, isEdited: false))
+        XCTAssertFalse(Placement.canLeave(isUntitled: false, isPreferences: true, isBackup: false, isEdited: false))
+        XCTAssertFalse(Placement.canLeave(isUntitled: false, isPreferences: false, isBackup: true, isEdited: false))
+        XCTAssertFalse(Placement.canLeave(isUntitled: false, isPreferences: false, isBackup: false, isEdited: true))
+    }
+
+    private func names(_ paths: [String]?) -> [String] {
+        (paths ?? []).map { URL(fileURLWithPath: $0).lastPathComponent }
+    }
+
+    func testOpenInPlaceReplacesTheTabAndBackReturns() async throws {
+        // Turns red if opening in place adds a tab, drops the file it left from the back list, or Back and Forward
+        // stop moving between them in the same tab.
+        let a = try write("a.md", "alpha"), b = try write("b.md", "beta")
+        let model = WindowModel(id: 20, context: context())
+        await model.setFolder(folder, prompt: false)
+        await model.openInTab(a)
+        let tabID = try XCTUnwrap(model.tabs.currentID)
+        await model.openInPlace(b)
+        XCTAssertEqual(model.tabs.items.count, 1)
+        XCTAssertEqual(model.tabs.currentID, tabID)
+        XCTAssertEqual(model.currentDocument?.text, "beta")
+        XCTAssertEqual(names(model.tabs.current?.history.back), ["a.md"])
+
+        await model.step(back: true, steps: 1)
+        XCTAssertEqual(model.currentDocument?.text, "alpha")
+        XCTAssertEqual(names(model.tabs.current?.history.forward), ["b.md"])
+        await model.step(back: false, steps: 1)
+        XCTAssertEqual(model.currentDocument?.text, "beta")
+        XCTAssertEqual(model.tabs.currentID, tabID)
+    }
+
+    func testOpenInPlaceKeepsUnsavedTextAndOpenTabs() async throws {
+        // Turns red if opening in place replaces a file whose changes autosave could not write, or opens a second
+        // tab for a file that is already open.
+        let a = try write("a.md", "alpha"), b = try write("b.md", "beta")
+        let context = context()
+        context.preferences.set("file.autosave", .bool(false))
+        let model = WindowModel(id: 21, context: context)
+        await model.setFolder(folder, prompt: false)
+        await model.openInTab(a)
+        let edited = try XCTUnwrap(model.currentDocument)
+        edited.textStorage.replaceCharacters(in: NSRange(location: 5, length: 0), with: " edited")
+        await model.openInPlace(b)
+        XCTAssertEqual(model.tabs.items.count, 2)
+        XCTAssertEqual(model.currentDocument?.text, "beta")
+        XCTAssertTrue(model.tabs.items[0].document === edited)
+
+        model.activate(model.tabs.items[0].id)
+        await model.openInPlace(b)
+        XCTAssertEqual(model.tabs.items.count, 2)
+        XCTAssertEqual(model.tabs.currentID, model.tabs.items[1].id)
+    }
+
+    func testBackSkipsAMissingFileAndHistorySurvivesQuit() async throws {
+        // Turns red if Back stops dropping an entry whose file is gone, or tabs lose their lists across a relaunch.
+        let a = try write("a.md", "alpha"), b = try write("b.md", "beta"), c = try write("c.md", "gamma")
+        let context = context()
+        let model = WindowModel(id: 22, context: context)
+        await model.setFolder(folder, prompt: false)
+        await model.openInTab(a)
+        await model.openInPlace(b)
+        await model.openInPlace(c)
+        XCTAssertEqual(names(model.tabs.current?.history.back), ["a.md", "b.md"])
+        await model.saveForQuit()
+
+        let restored = WindowModel(id: 22, context: context)
+        await restored.setFolder(folder, prompt: false)
+        XCTAssertEqual(names(restored.tabs.current?.history.back), ["a.md", "b.md"])
+
+        try FileManager.default.removeItem(at: b)
+        await restored.step(back: true, steps: 1)
+        XCTAssertEqual(restored.currentDocument?.text, "alpha")
+        XCTAssertEqual(names(restored.tabs.current?.history.back), [])
+        XCTAssertEqual(names(restored.tabs.current?.history.forward), ["c.md"])
     }
 
     func testWindowRestoresTabsForItsFolder() async throws {
@@ -357,9 +458,11 @@ final class PlainTests: XCTestCase {
         model.openBackup(backup)
         XCTAssertEqual(model.tabs.current?.title, "a.md | \(backup.friendlyDate)")
 
-        model.sidebar.show(.outline)
+        model.sidebar.visible = false
+        context.sidebarSections.toggleFold(.files)
         model.perform("window:sidebar")
-        XCTAssertEqual(model.sidebar.mode, .files)
+        XCTAssertTrue(model.sidebar.visible)
+        XCTAssertFalse(context.sidebarSections[.files].folded)
         XCTAssertTrue(model.sidebar.filesFocusRequested)
     }
 
@@ -397,13 +500,41 @@ final class PlainTests: XCTestCase {
         XCTAssertEqual(split.previewX, 940)
         XCTAssertEqual(split.previewWidth, 740)
         XCTAssertEqual(split.columnX, 289)
+
+        // A sidebar dragged to 300 pt moves the editor by that much (docs/navigation-spec.md, Width).
+        let wider = WindowLayout.compute(windowWidth: 800, screenWidth: 1680, sidebar: true, preview: .none, columnWidth: 562, sidebarWidth: 300)
+        XCTAssertTrue(wider.compact)
+        XCTAssertEqual(wider.editorX, 300)
+        XCTAssertEqual(wider.columnWidth, 340)
     }
 
     func testMinimumWidth() {
-        // Turns red if the minimum width stops doubling with a preview or adding 260 with a sidebar (spec 725, 1432).
-        XCTAssertEqual(WindowModel.minimumWidth(sidebarVisible: false, previewVisible: false), 400)
-        XCTAssertEqual(WindowModel.minimumWidth(sidebarVisible: false, previewVisible: true), 800)
-        XCTAssertEqual(WindowModel.minimumWidth(sidebarVisible: true, previewVisible: true), 1060)
+        // Turns red if the minimum width stops doubling with a preview or adding the sidebar's width plus 60
+        // (260 at the default width, spec 725, 1432).
+        XCTAssertEqual(WindowModel.minimumWidth(sidebarWidth: nil, previewVisible: false), 400)
+        XCTAssertEqual(WindowModel.minimumWidth(sidebarWidth: nil, previewVisible: true), 800)
+        XCTAssertEqual(WindowModel.minimumWidth(sidebarWidth: 200, previewVisible: true), 1060)
+        XCTAssertEqual(WindowModel.minimumWidth(sidebarWidth: 300, previewVisible: false), 760)
+    }
+
+    func testOldSidebarStateAndPinsInTheWindow() async throws {
+        // Turns red if a sidebar-w<N> file from before sections stops loading, or the Recent and Pinned sections stop
+        // listing the right files.
+        let a = try write("a.md", "alpha"), b = try write("b.md", "beta")
+        let context = context()
+        try await context.store.save(WindowModel.sidebarName(23), "none")
+        let model = WindowModel(id: 23, context: context)
+        await model.restore()
+        XCTAssertFalse(model.sidebar.visible)
+
+        await model.setFolder(folder, prompt: false)
+        await model.openInTab(a)
+        await model.openInTab(b)
+        XCTAssertEqual(model.recentFiles.map(\.lastPathComponent), ["a.md"])
+        model.pin(a)
+        XCTAssertEqual(model.pinnedFiles.map(\.lastPathComponent), ["a.md"])
+        try model.sidebarActions.rename(a, "c.md")
+        XCTAssertEqual(model.pinnedFiles.map(\.lastPathComponent), ["c.md"])
     }
 
     // MARK: Settings files

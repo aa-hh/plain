@@ -11,5 +11,6 @@ Plain is built with these projects. Thank you to everyone who made them.
 | [Prism](https://prismjs.com) | Highlighting code | MIT |
 | [gemoji](https://github.com/github/gemoji) | Emoji names | MIT |
 | [Roboto Mono](https://github.com/googlefonts/RobotoMono) | The code font | SIL Open Font License 1.1 |
+| [Lucide](https://lucide.dev) | File and heading icons | ISC |
 
-The full licence texts of the bundled KaTeX, Prism, gemoji and Roboto Mono files follow.
+The full licence texts of the bundled KaTeX, Prism, gemoji, Roboto Mono and Lucide files follow.

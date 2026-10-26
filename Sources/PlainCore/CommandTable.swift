@@ -197,13 +197,15 @@ extension Command {
         c("To Command…", "window:commands", .go, "Cmd Shift P", "Cmd Shift A"),
         c("To Next Tab", "window:next-tab", .go, "Cmd Alt Right", "Cmd Shift ]"),
         c("To Previous Tab", "window:previous-tab", .go, "Cmd Alt Left", "Cmd Shift ["),
+        c("Back", "window:go-back", .go, "Cmd ["),
+        c("Forward", "window:go-forward", .go, "Cmd ]"),
         c("To Last Edit", "editor:last-edit", .go, "Cmd Shift Backspace", "Ctrl Q", "Ctrl Minus"),
         c("To Next Edit", "editor:next-edit", .go, "Ctrl Shift Minus", "Ctrl Plus", hidden: true),
 
         // View
-        c("Show Files", "window:sidebar", .view, "Cmd Shift E", kind: .radio(group: "sidebar")),
-        c("Show Outline", "window:headings-bar", .view, "Cmd Shift B", kind: .radio(group: "sidebar")),
-        c("Show None", "window:toggle-sidebar", .view, "Cmd \\", kind: .radio(group: "sidebar")),
+        c("Show Files", "window:sidebar", .view, "Cmd Shift E"),
+        c("Show Outline", "window:headings-bar", .view, "Cmd Shift B"),
+        c("Show Sidebar", "window:toggle-sidebar", .view, "Cmd \\", kind: .checkbox),
         c("Show Preview", "window:toggle-live-preview", .view, "Cmd Shift I", kind: .checkbox),
         c("Preview", "window:toggle-preview", .view, kind: .checkbox),
         c("Add Theme…", "application:add-custom-theme", .view),

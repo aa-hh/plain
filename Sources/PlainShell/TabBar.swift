@@ -15,12 +15,19 @@ public struct TabBarActions {
     public var revertToBackup: (TabItem.ID) -> Void
     /// Double-click on the empty bar.
     public var toggleZoom: () -> Void
+    /// The arrows and their menus: go this many entries back or forward in the current tab.
+    public var goBack: (Int) -> Void
+    public var goForward: (Int) -> Void
+    /// Pin in Sidebar.
+    public var pin: (TabItem.ID) -> Void
 
     public init(
         select: @escaping (TabItem.ID) -> Void, close: @escaping (TabItem.ID) -> Void,
         closeOthers: @escaping (TabItem.ID) -> Void, closeAll: @escaping () -> Void,
         move: @escaping (TabItem.ID, Int) -> Void, showInFinder: @escaping (TabItem.ID) -> Void,
-        revertToBackup: @escaping (TabItem.ID) -> Void, toggleZoom: @escaping () -> Void
+        revertToBackup: @escaping (TabItem.ID) -> Void, toggleZoom: @escaping () -> Void,
+        goBack: @escaping (Int) -> Void = { _ in }, goForward: @escaping (Int) -> Void = { _ in },
+        pin: @escaping (TabItem.ID) -> Void = { _ in }
     ) {
         self.select = select
         self.close = close
@@ -30,6 +37,9 @@ public struct TabBarActions {
         self.showInFinder = showInFinder
         self.revertToBackup = revertToBackup
         self.toggleZoom = toggleZoom
+        self.goBack = goBack
+        self.goForward = goForward
+        self.pin = pin
     }
 }
 
@@ -59,16 +69,30 @@ public struct TabBar: View {
         return date.formatted(date: .abbreviated, time: .omitted)
     }
 
+    /// How many entries an arrow's menu lists, newest first.
+    public static let arrowMenuLimit = 15
+
     public var body: some View {
+        let history = tabs.first(where: { $0.id == currentID })?.history
         HStack(spacing: 0) {
-            ForEach(Array(tabs.enumerated()), id: \.element.id) { index, tab in
-                tabView(tab)
-                    .dropDestination(for: String.self) { ids, _ in
-                        guard let id = ids.first.flatMap(UUID.init(uuidString:)) else { return false }
-                        actions.move(id, index)
-                        return true
-                    }
+            // The arrows sit at the strip's left; the same width kept on the right keeps the tabs centred.
+            if let history {
+                arrow("arrow-left", name: "Back", shortcut: "⌘[", entries: history.back, go: actions.goBack)
+                arrow("arrow-right", name: "Forward", shortcut: "⌘]", entries: history.forward, go: actions.goForward)
+                    .padding(.trailing, 10)
             }
+            HStack(spacing: 0) {
+                ForEach(Array(tabs.enumerated()), id: \.element.id) { index, tab in
+                    tabView(tab)
+                        .dropDestination(for: String.self) { ids, _ in
+                            guard let id = ids.first.flatMap(UUID.init(uuidString:)) else { return false }
+                            actions.move(id, index)
+                            return true
+                        }
+                }
+            }
+            .frame(maxWidth: .infinity)
+            if history != nil { Color.clear.frame(width: 58, height: 1) }
         }
         .padding(.top, 9)
         .padding(.horizontal, Tokens.editorSidePadding)
@@ -112,8 +136,35 @@ public struct TabBar: View {
             Button("Move to the Right") { moveBy(tab, 1) }
             Divider()
             Button("Show in Finder") { actions.showInFinder(tab.id) }
+            if !document.isBackupTab, document.url != nil, tab.mark != .outsideFolder {
+                Button("Pin in Sidebar") { actions.pin(tab.id) }
+            }
             if document.isBackupTab { Button("Revert to This") { actions.revertToBackup(tab.id) } }
         }
+    }
+
+    /// A back or forward arrow: drawn only when its list has entries, but its 24 pt always kept so tabs never shift.
+    private func arrow(_ icon: String, name: String, shortcut: String, entries: [String], go: @escaping (Int) -> Void) -> some View {
+        let next = entries.last.map { URL(fileURLWithPath: $0).lastPathComponent }
+        let menu = Array(entries.reversed().prefix(Self.arrowMenuLimit))
+        return LucideIcon(name: icon)
+            .frame(width: 24, height: 30)
+            .opacity(next == nil ? 0 : 1)
+            .contentShape(Rectangle())
+            .allowsHitTesting(next != nil)
+            .onTapGesture { go(1) }
+            .help(next.map { "\(name) to \($0) (\(shortcut))" } ?? "")
+            .contextMenu {
+                ForEach(Array(menu.enumerated()), id: \.offset) { index, path in
+                    Button(URL(fileURLWithPath: path).lastPathComponent) { go(index + 1) }
+                }
+            }
+            .accessibilityElement()
+            .accessibilityLabel(name)
+            .accessibilityValue(next ?? "")
+            .accessibilityAddTraits(.isButton)
+            .accessibilityAction { go(1) }
+            .accessibilityHidden(next == nil)
     }
 
     private func moveBy(_ tab: TabItem, _ step: Int) {

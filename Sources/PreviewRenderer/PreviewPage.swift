@@ -36,8 +36,9 @@ public enum PreviewMessage: Equatable, Sendable {
 public protocol PreviewPage: AnyObject {
     /// Called with the index of a ticked or unticked task checkbox among all task checkboxes in the page.
     var onTask: ((Int) -> Void)? { get set }
-    /// Called with the `href` of a clicked link that is not a `#` link.
-    var onLink: ((String) -> Void)? { get set }
+    /// Called with the `href` of a clicked link that is not a `#` link, and whether it opens in a new tab
+    /// (Option+click or middle-click).
+    var onLink: ((String, Bool) -> Void)? { get set }
     func send(_ message: PreviewMessage)
     /// `data-block` value to the element's top in page coordinates.
     func blockTops() async -> [String: Double]
@@ -152,14 +153,18 @@ let previewScript = """
     }
   };
 
-  root.addEventListener('click', function (event) {
+  function followLink(event, newTab) {
     var link = event.target.closest ? event.target.closest('a') : null;
     if (!link) return;
     var href = link.getAttribute('href');
     if (!href) return;
     event.preventDefault();
     if (href.charAt(0) === '#') { plain.scrollToAnchor(decodeURIComponent(href.slice(1))); return; }
-    window.webkit.messageHandlers.link.postMessage(href);
+    window.webkit.messageHandlers.link.postMessage({ href: href, newTab: newTab });
+  }
+  root.addEventListener('auxclick', function (event) { if (event.button === 1) followLink(event, true); });
+  root.addEventListener('click', function (event) {
+    followLink(event, event.altKey);
   });
   root.addEventListener('click', function (event) {
     var button = event.target.closest ? event.target.closest('.code-copy') : null;
@@ -230,7 +235,7 @@ private final class WeakMessageHandler: NSObject, WKScriptMessageHandler {
 public final class WebPreviewPage: NSObject, PreviewPage, WKNavigationDelegate {
     public let webView: WKWebView
     public var onTask: ((Int) -> Void)?
-    public var onLink: ((String) -> Void)?
+    public var onLink: ((String, Bool) -> Void)?
     private var loaded = false
     private var waiting: [String] = []
     private var loadWaiters: [CheckedContinuation<Void, Never>] = []
@@ -253,7 +258,10 @@ public final class WebPreviewPage: NSObject, PreviewPage, WKNavigationDelegate {
     fileprivate func received(_ message: WKScriptMessage) {
         switch message.name {
         case "task": if let index = (message.body as? NSNumber)?.intValue, index >= 0 { onTask?(index) }
-        case "link": if let href = message.body as? String { onLink?(href) }
+        case "link":
+            if let body = message.body as? [String: Any], let href = body["href"] as? String {
+                onLink?(href, (body["newTab"] as? Bool) ?? false)
+            }
         default: break
         }
     }
@@ -327,7 +335,7 @@ public final class WebPreviewPage: NSObject, PreviewPage, WKNavigationDelegate {
             decisionHandler(.allow)
             return
         }
-        if let url = navigationAction.request.url { onLink?(url.isFileURL ? url.path : url.absoluteString) }
+        if let url = navigationAction.request.url { onLink?(url.isFileURL ? url.path : url.absoluteString, false) }
         decisionHandler(.cancel)
     }
 }

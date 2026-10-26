@@ -86,7 +86,7 @@ extension EditorTextView {
         return nil
     }
 
-    func open(_ link: LinkAtCaret) {
+    func open(_ link: LinkAtCaret, newTab: Bool = false) {
         switch link.target {
         case .anchor(let slug):
             if let definition = link.definition, slug.hasPrefix("fn-") {
@@ -96,7 +96,7 @@ extension EditorTextView {
                 goToAnchor(slug)
             }
         case .web(let url): actions.visitURL(url)
-        case .file(let url): actions.openPath(url)
+        case .file(let url): actions.openPath(url, newTab)
         }
     }
 
@@ -136,13 +136,14 @@ extension EditorTextView {
         if linkTarget(at: offset) != nil { NSCursor.pointingHand.set() } else { NSCursor.iBeam.set() }
     }
 
-    /// Cmd+click opens the link under the pointer; any other click places the caret.
+    /// Cmd+click opens the link under the pointer in place, Cmd+Option+click in a new tab
+    /// (docs/navigation-spec.md); any other click places the caret.
     func clickedLink(_ event: NSEvent) -> Bool {
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-        guard flags == .command else { return false }
+        guard flags == .command || flags == [.command, .option] else { return false }
         let offset = characterIndexForInsertion(at: convert(event.locationInWindow, from: nil))
         guard let link = linkTarget(at: offset) else { return false }
-        open(link)
+        open(link, newTab: flags.contains(.option))
         return true
     }
 }
