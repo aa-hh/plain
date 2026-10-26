@@ -117,6 +117,15 @@ Prose-mode CSS variables, where `1em` is the prose size:
 So in an assistant message h1 and h2 are 2px larger than body text with 3px more leading,
 and h3 to h6 are body size. Heading weight is semibold (580, axis 540).
 
+Two heading scales were measured. The one above is the conversation scale: it comes from the
+classes the renderer puts on headings inside an assistant message, where a heading is one run of
+prose among many, so h1 and h2 sit 2px above body text, h3 to h6 sit at body size, and every
+heading is semibold. The same app carries a second scale in its markdown components, for markdown
+that stands on its own rather than sitting inside a conversation: h1 22px, h2 18px, h3 and h4
+16px, h5 14px, h6 14px, with h1 to h5 bold and h6 semibold, and 12px above and 4px below for h1
+and h2 and 8px above and 4px below for h3 to h6. Plain is a document editor, so the Claude theme
+ships the content scale. The conversation scale above is kept as the alternative, not deleted.
+
 ### Paragraph, strong, links
 
 - `p`: base typography plus `break-words whitespace-normal`.
@@ -309,5 +318,19 @@ Shiki's grammars and theme are a large dependency. Plain keeps its own fonts and
 
 For the streaming feel, Plain's preview has no stream, but the block scanner is still
 the right model for how a preview should treat a document being typed into: blocks that
-are closed render settled, and the open block renders provisionally. That is a larger
-change than the theme and is not in this pass.
+are closed render settled, and the open block renders provisionally.
+
+That is now built. The parser holds the caret's block as a table while it is still
+ambiguous, and the snapshot carries the kind to show for it, so a half-typed table renders
+as a table instead of a paragraph that flips. Everything else in the scanner turned out to
+be unnecessary: a setext underline and a bare list marker settle the block on their first
+character, and a fence, math block or blockquote opens on its own first line, so the table
+was the only kind that needed holding.
+
+One deviation from the measurement is worth knowing about. Claude opens a table on any line
+holding a `|`, which is right for text arriving from a model but wrong for text arriving
+from a keyboard: a pipe inside an ordinary sentence is held as a table for as long as the
+caret stays in that paragraph. The behaviour is pinned by a test so it reads as a decision
+rather than an accident. Tightening it to a pipe at the start or end of the line, or to a
+second pipe on the line, would keep the provisional table for the common table styles
+(`| a | b |`, `a | b |`, `a | b | c`) while releasing single-pipe prose.
