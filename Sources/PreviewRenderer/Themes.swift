@@ -67,15 +67,15 @@ public struct Themes: Sendable {
         await store.load(Self.stateName, as: SavedTheme.self)?.themePath
     }
 
-    /// The saved theme if its file exists, else `Themes/Default.css`, else the built-in Default written to a
+    /// The saved theme if its file exists, else `Themes/Claude.css`, else the built-in Claude written to a
     /// temporary file (spec 551).
     public func startupTheme() async -> URL {
         let manager = FileManager.default
         if let path = await savedThemePath(), manager.fileExists(atPath: path) { return URL(fileURLWithPath: path) }
-        let defaultURL = folder.appendingPathComponent("Default.css")
-        if manager.fileExists(atPath: defaultURL.path) { return defaultURL }
-        let fallback = manager.temporaryDirectory.appendingPathComponent("Plain-Default.css")
-        try? Self.css(for: Tokens.previewDefault).write(to: fallback, atomically: true, encoding: .utf8)
+        let claudeURL = folder.appendingPathComponent("Claude.css")
+        if manager.fileExists(atPath: claudeURL.path) { return claudeURL }
+        let fallback = manager.temporaryDirectory.appendingPathComponent("Plain-Claude.css")
+        try? Self.css(for: Tokens.previewClaude).write(to: fallback, atomically: true, encoding: .utf8)
         return fallback
     }
 
@@ -138,6 +138,8 @@ public struct Themes: Sendable {
             var rule = "h\(level) { font-size: \(theme.headingSizes[level - 1]);"
             let margin = theme.headingMargins[level - 1]
             if !margin.isEmpty { rule += " margin: \(margin);" }
+            let weight = theme.headingWeights[level - 1]
+            if !weight.isEmpty { rule += " font-weight: \(weight);" }
             if theme.name == "Default" && level == 1 { rule += " line-height: 28.8px;" }
             if isGitHub && level == 1 { rule += " line-height: 43.2px; padding-bottom: 10.8px; border-bottom: 1px solid #EEEEEE;" }
             if isGitHub && level == 2 { rule += " line-height: 34.3px; padding-bottom: 8.4px; border-bottom: 1px solid #EEEEEE;" }

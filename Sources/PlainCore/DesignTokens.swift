@@ -81,6 +81,8 @@ public struct PreviewThemeTokens: Sendable {
     public var headingSizes: [String]
     /// h1 to h6 margins (CSS `margin` shorthand); empty means inherit the paragraph margin.
     public var headingMargins: [String]
+    /// h1 to h6 font weights; empty means inherit `headingWeight`.
+    public var headingWeights: [String]
     public var linkColor: String
     public var inlineCodeFont: String
     public var inlineCodeSize: String
@@ -277,6 +279,7 @@ public enum Tokens {
         headingWeight: "bold",
         headingSizes: ["32px", "24px", "16px", "16px", "16px", "16px"],
         headingMargins: ["86.4px 0 57.6px", "64.8px 0 43.2px", "43.2px 0 28.8px", "", "", ""],
+        headingWeights: ["", "", "", "", "", ""],
         linkColor: "#7799BB",
         inlineCodeFont: "\"Roboto Mono\", monospace",
         inlineCodeSize: "13.6px",
@@ -327,6 +330,7 @@ public enum Tokens {
         headingWeight: "bold",
         headingSizes: ["36px", "28px", "24px", "20px", "16px", "16px"],
         headingMargins: ["36px 0 16px", "28px 0 16px", "24px 0 16px", "20px 0 16px", "16px 0 16px", ""],
+        headingWeights: ["", "", "", "", "", ""],
         linkColor: "#4078C0",
         inlineCodeFont: "Consolas, \"Liberation Mono\", Menlo, Courier, monospace",
         inlineCodeSize: "13.6px",
@@ -377,6 +381,7 @@ public enum Tokens {
         headingWeight: "normal",
         headingSizes: ["26px", "22.1px", "18.2px", "18.2px", "18.2px", "18.2px"],
         headingMargins: ["37.05px 0 24.7px", "37.05px 0 24.7px", "", "", "", ""],
+        headingWeights: ["", "", "", "", "", ""],
         linkColor: "#88AACC",
         inlineCodeFont: "\"Roboto Mono\", monospace",
         inlineCodeSize: "12.35px",
@@ -427,8 +432,9 @@ public enum Tokens {
         paragraphMargin: "22.5px 0",
         headingFont: "system-ui, sans-serif",
         headingWeight: "600",
-        headingSizes: ["17px", "17px", "15px", "15px", "15px", "15px"],
+        headingSizes: ["22px", "18px", "16px", "16px", "14px", "14px"],
         headingMargins: ["12px 0 -4px", "12px 0 -4px", "8px 0 -4px", "8px 0 -4px", "8px 0 -4px", "8px 0 -4px"],
+        headingWeights: ["bold", "bold", "bold", "bold", "bold", "600"],
         linkColor: "#0B5FCE",
         inlineCodeFont: "inherit",
         inlineCodeSize: "1em",
@@ -477,8 +483,9 @@ public enum Tokens {
         paragraphMargin: "22.5px 0",
         headingFont: "system-ui, sans-serif",
         headingWeight: "600",
-        headingSizes: ["17px", "17px", "15px", "15px", "15px", "15px"],
+        headingSizes: ["22px", "18px", "16px", "16px", "14px", "14px"],
         headingMargins: ["12px 0 -4px", "12px 0 -4px", "8px 0 -4px", "8px 0 -4px", "8px 0 -4px", "8px 0 -4px"],
+        headingWeights: ["bold", "bold", "bold", "bold", "bold", "600"],
         linkColor: "#7AB3FF",
         inlineCodeFont: "inherit",
         inlineCodeSize: "1em",
