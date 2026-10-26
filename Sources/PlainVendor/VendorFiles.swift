@@ -3,7 +3,13 @@ import Foundation
 /// Locations of the files `scripts/fetch-vendor.sh` writes into this target's `Resources` folder.
 public enum VendorFiles {
     /// The copied `Resources` folder; also the folder holding every vendor licence (`*/LICENSE`, `fonts/OFL.txt`).
-    public static let root: URL = Bundle.module.resourceURL!.appendingPathComponent("Resources", isDirectory: true)
+    /// Swift 6.4's build puts it inside the bundle's `Contents/Resources`; Swift 6.3 builds a flat bundle in which the
+    /// copied folder is itself the bundle's resource folder.
+    public static let root: URL = {
+        let resources = Bundle.module.resourceURL!
+        let nested = resources.appendingPathComponent("Resources", isDirectory: true)
+        return FileManager.default.fileExists(atPath: nested.path) ? nested : resources
+    }()
 
     public static let katexJS = root.appendingPathComponent("katex/katex.min.js")
     public static let katexCSS = root.appendingPathComponent("katex/katex.min.css")
