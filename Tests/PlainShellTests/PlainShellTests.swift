@@ -296,4 +296,32 @@ final class PlainShellTests: XCTestCase {
         let data = try JSONEncoder().encode(history)
         XCTAssertEqual(try JSONDecoder().decode(TabHistory.self, from: data), history)
     }
+
+    func testFilterRowsShowOnlyWhileInUse() async throws {
+        // Turns red if the Files or Outline section draws its filter field while the filter is empty and unfocused,
+        // or hides it while it has focus or text (docs/navigation-spec.md, The sidebar).
+        XCTAssertFalse(SectionFilter.isShown(focused: false, query: ""))
+        XCTAssertTrue(SectionFilter.isShown(focused: true, query: ""))
+        XCTAssertTrue(SectionFilter.isShown(focused: false, query: "pl"))
+
+        try "# One\n".write(to: folder.appendingPathComponent("a.md"), atomically: true, encoding: .utf8)
+        let index = FolderIndex(root: folder)
+        await index.start()
+        let tree = await index.tree
+        let actions = FilesSidebarActions(
+            open: { _, _ in }, createFile: { _, _ in }, createFolder: { _, _ in }, rename: { _, _ in },
+            trash: { _ in }, copy: { _ in }, cut: { _ in }, paste: { _ in }, revealInFinder: { _ in }, focusEditor: {})
+        func textFields(_ view: some View) -> Int {
+            let host = NSHostingView(rootView: view.frame(width: 200, height: 300))
+            host.frame = NSRect(x: 0, y: 0, width: 200, height: 300)
+            host.layoutSubtreeIfNeeded()
+            func count(_ view: NSView) -> Int { (view is NSTextField ? 1 : 0) + view.subviews.map(count).reduce(0, +) }
+            return count(host)
+        }
+        // A plain field shows up as an NSTextField, so a count of 0 below means the sections drew none.
+        XCTAssertGreaterThan(textFields(TextField("", text: .constant(""))), 0)
+        XCTAssertEqual(textFields(FilesSidebar(root: tree, currentFile: nil, gitMarks: [:], expanded: .constant([]), actions: actions)), 0)
+        let list = await headings("# One\n## Two\n")
+        XCTAssertEqual(textFields(OutlineSidebar(headings: list, caretOffset: 0, changedHeadings: [], onJump: { _, _ in })), 0)
+    }
 }

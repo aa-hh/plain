@@ -174,7 +174,7 @@ public struct FilesSidebar: View {
         let rows = Self.visibleRows(root: root, expanded: expanded, query: query)
         VStack(spacing: 0) {
             // The filter row shows only while it is in use; typing in the list starts it.
-            if focus == .filter || !query.isEmpty {
+            if SectionFilter.isShown(focused: focus == .filter, query: query) {
                 TextField("", text: $query, selection: $filterSelection, prompt: Text(root.name).foregroundStyle(Color.tertiaryText))
                     .textFieldStyle(.plain)
                     .font(uiFont)

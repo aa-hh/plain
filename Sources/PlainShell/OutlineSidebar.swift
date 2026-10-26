@@ -44,7 +44,7 @@ public struct OutlineSidebar: View {
         let ranks = HeadingList.ranks(levels: headings.map(\.level))
         let current = Self.currentHeading(headings, caretOffset: caretOffset)
         VStack(spacing: 0) {
-            if filterShown || !query.isEmpty {
+            if SectionFilter.isShown(focused: filterShown, query: query) {
                 TextField("", text: $query, prompt: Text("Outline").foregroundStyle(Color.tertiaryText))
                     .textFieldStyle(.plain)
                     .font(uiFont)

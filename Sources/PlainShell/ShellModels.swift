@@ -240,6 +240,12 @@ public final class Pins {
     }
 }
 
+/// The Files and Outline sections draw their filter row only while it has focus or text; otherwise their rows sit
+/// right under the header (docs/navigation-spec.md, The sidebar).
+enum SectionFilter {
+    static func isShown(focused: Bool, query: String) -> Bool { focused || !query.isEmpty }
+}
+
 /// A tab's mark before its name. The edited dot comes from `Document.isEdited`.
 public enum TabMark: Sendable {
     case none
